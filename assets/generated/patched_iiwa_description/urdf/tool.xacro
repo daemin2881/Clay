@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  
+  <!-- Import all Gazebo-customization elements, including Gazebo colors -->
+  <xacro:include filename="/home/airlab/research/clay_genesis/visual_sculpting_baseline/third_party/iiwa_stack/iiwa_description/urdf/iiwa.gazebo.xacro" />
+  <!-- Import Transmissions -->
+  <xacro:include filename="/home/airlab/research/clay_genesis/visual_sculpting_baseline/third_party/iiwa_stack/iiwa_description/urdf/iiwa.transmission.xacro" />
+  <!-- Include Utilities -->
+  <xacro:include filename="/home/airlab/research/clay_genesis/visual_sculpting_baseline/third_party/iiwa_stack/iiwa_description/urdf/utilities.xacro" />
+
+  <!-- Tool properties -->
+  <xacro:property name="robot_name" value="iiwa" />
+  <xacro:property name="tool_mass" value="0.200" />
+  <xacro:property name="tool_joint_offset" value="0.00 0.00 0.00" />
+  <xacro:property name="tool_link_offset" value="0.00 0.00 0.1275" />
+  
+  <!--  Here we define a dummy joint between the tip of the iiwa7 and the base of the tool. 
+  There is no offset between the two, that means the tool is attached at the robot flange. -->
+  <joint name="tool_joint" type="fixed">
+    <parent link="${robot_name}_link_ee" />
+    <child link = "tool_link" />
+    <origin xyz="${tool_joint_offset}" rpy="0 0 0" />  
+  </joint>
+  
+  <!-- Here we define the geometry of the tool. We designed the tool ourselves, so we have a mesh file that represents it.   
+  Else, one can define it using a geometric representation that approximate it, like a cylinder (see commented lines) -->
+  <link name="tool_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+	      <mesh filename="package://iiwa_description/meshes/tool/visual/tool.stl"/>
+	<!-- 	<cylinder length="0.1275" radius="0.020"/> -->
+      </geometry>
+      <material name="Grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+	      <mesh filename="package://iiwa_description/meshes/tool/collision/tool.stl"/>
+	<!-- 	<cylinder length="0.1275" radius="0.020"/> -->
+      </geometry>
+      <material name="Grey"/>
+    </collision>
+  </link>
+  
+  <!--  Here we define another dummy joint. It is placed at the end of the tool, so we can then attach a frame at its TCP for control -->
+  <joint name="tool_tip_joint" type="fixed">
+    <parent link="tool_link" />
+    <child link = "tool_link_ee" />
+    <origin xyz="${tool_link_offset}" rpy="0 0 0" />   
+  </joint>
+  
+  <!--  The TCP frame is here defined -->
+  <link name="tool_link_ee"/>
+  
+</robot>
