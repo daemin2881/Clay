@@ -224,9 +224,14 @@ CLAY_YIELD_STRESS = 180.0
 # 6. END EFFECTOR
 # ============================================================
 
-TOOL_RADIUS = 0.018
+TOOL_RADIUS = 0.015
 
-TOOL_LENGTH = 0.080
+TOOL_SHAFT_RADIUS = 0.030
+TOOL_TIP_RADIUS = 0.030
+
+TOOL_LENGTH = 0.070
+
+
 
 TOOL_MOUNT_GAP = 0.0015
 
