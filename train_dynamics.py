@@ -30,6 +30,31 @@ from vs_metrics import (
 
 
 # ============================================================
+# MEMORY-EFFICIENT MODEL FORWARD
+# ============================================================
+
+def forward_model_amp(
+    model,
+    state_representation,
+    parameters,
+):
+    if state_representation.device.type == "cuda":
+        with torch.autocast(
+            device_type="cuda",
+            dtype=torch.bfloat16,
+        ):
+            return model(
+                state_representation,
+                parameters,
+            )
+
+    return model(
+        state_representation,
+        parameters,
+    )
+
+
+# ============================================================
 # PAPER LOSS
 #
 # Paper-style objective:
@@ -491,6 +516,29 @@ def main():
     )
 
 
+    parser.add_argument(
+        "--dataset-dir",
+        type=str,
+        default=None,
+        help="Dataset directory. Default: dataset/<material>",
+    )
+
+
+    parser.add_argument(
+        "--init-checkpoint",
+        type=str,
+        default=None,
+        help="Model checkpoint used to initialize fine-tuning.",
+    )
+
+
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=LEARNING_RATE,
+    )
+
+
     # --------------------------------------------------------
     # LOSS MODE
     #
@@ -637,7 +685,7 @@ def main():
 
     print(
         "learning rate =",
-        LEARNING_RATE
+        args.learning_rate
     )
 
 
@@ -684,12 +732,25 @@ def main():
     # DATASET
     # ========================================================
 
-    dataset = GPUDataset(
-
-        os.path.join(
+    dataset_root = (
+        args.dataset_dir
+        if args.dataset_dir is not None
+        else os.path.join(
             DATASET_DIR,
             args.material,
-        ),
+        )
+    )
+
+
+    print(
+        "dataset root  =",
+        dataset_root,
+    )
+
+
+    dataset = GPUDataset(
+
+        dataset_root,
 
         device,
 
@@ -913,11 +974,64 @@ def main():
     )
 
 
+    if args.init_checkpoint is not None:
+
+        if not os.path.isfile(
+            args.init_checkpoint
+        ):
+
+            raise FileNotFoundError(
+                args.init_checkpoint
+            )
+
+
+        initial_checkpoint = torch.load(
+            args.init_checkpoint,
+            map_location=device,
+            weights_only=False,
+        )
+
+
+        if (
+            isinstance(
+                initial_checkpoint,
+                dict,
+            )
+            and
+            "model" in initial_checkpoint
+        ):
+
+            initial_state_dict = (
+                initial_checkpoint[
+                    "model"
+                ]
+            )
+
+        else:
+
+            initial_state_dict = (
+                initial_checkpoint
+            )
+
+
+        model.load_state_dict(
+            initial_state_dict,
+            strict=True,
+        )
+
+
+        print()
+        print(
+            "loaded initial model =",
+            args.init_checkpoint,
+        )
+
+
     optimizer = torch.optim.Adam(
 
         model.parameters(),
 
-        lr=LEARNING_RATE,
+        lr=args.learning_rate,
     )
 
 
@@ -1054,15 +1168,10 @@ def main():
             #   canonical deformation
             # ------------------------------------------------
 
-            pred_delta = model(
-
-                batch[
-                    "state_rep"
-                ],
-
-                batch[
-                    "params"
-                ],
+            pred_delta = forward_model_amp(
+                model,
+                batch["state_rep"],
+                batch["params"],
             )
 
 
@@ -1279,15 +1388,10 @@ def main():
                 )
 
 
-                pred_delta = model(
-
-                    batch[
-                        "state_rep"
-                    ],
-
-                    batch[
-                        "params"
-                    ],
+                pred_delta = forward_model_amp(
+                    model,
+                    batch["state_rep"],
+                    batch["params"],
                 )
 
 
@@ -1575,6 +1679,15 @@ def main():
 
                 "material":
                 args.material,
+
+                "dataset_root":
+                dataset_root,
+
+                "learning_rate":
+                args.learning_rate,
+
+                "init_checkpoint":
+                args.init_checkpoint,
 
                 "loss_mode":
                 args.loss_mode,

@@ -80,6 +80,15 @@ def parse_args():
         action="store_true",
     )
 
+    parser.add_argument(
+        "--press-range",
+        action="store_true",
+        help=(
+            "Collect short, deep press actions in the "
+            "safe central workspace."
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.n <= 0:
@@ -156,6 +165,28 @@ from vs_config import (
 
 
 # ============================================================
+# PRESS RANGE OVERRIDE
+#
+# This changes only collect_dataset.py globals.
+# vs_config.py and the simulator configuration stay unchanged.
+# ============================================================
+
+if ARGS.press_range:
+
+    X_MIN = 0.380
+    X_MAX = 0.560
+
+    Y_MIN = -0.110
+    Y_MAX = 0.110
+
+    LENGTH_MIN = 0.005
+    LENGTH_MAX = 0.020
+
+    DEPTH_MIN = 0.010
+    DEPTH_MAX = 0.030
+
+
+# ============================================================
 # CONSTANTS
 # ============================================================
 
@@ -172,6 +203,9 @@ ACTION_TYPE = (
 )
 
 SAMPLER_NAME = (
+    "uniform_feasible_press_5d"
+    if ARGS.press_range
+    else
     "uniform_feasible_5d"
 )
 

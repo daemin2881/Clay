@@ -7,3 +7,8 @@ outputs/
 *.npy
 *.npz
 *.log
+dataset/
+checkpoints/
+logs/
+results/
+*.bak_before_*

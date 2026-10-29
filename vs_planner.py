@@ -2052,6 +2052,213 @@ def repeat_action_penalty(
 # 5. recent physical action history support
 # ============================================================
 
+
+# ============================================================
+# SAFE PLANNING ACTION RANGE
+#
+# x/y는 로봇이 안정적으로 도달하는 영역으로 제한한다.
+# length는 지나치게 긴 궤적만 제한한다.
+# depth는 학습/정규화 전체 범위를 그대로 사용하여
+# planner가 얕은/중간/깊은 push 중 손실이 가장 작은 것을
+# 직접 선택하게 한다.
+# ============================================================
+
+SAFE_PLAN_X_MIN = max(0.380, X_MIN)
+SAFE_PLAN_X_MAX = min(0.560, X_MAX)
+
+SAFE_PLAN_Y_MIN = max(-0.110, Y_MIN)
+SAFE_PLAN_Y_MAX = min(0.110, Y_MAX)
+
+SAFE_PLAN_LENGTH_MAX = min(
+    0.065,
+    LENGTH_MAX,
+)
+
+SAFE_PLAN_DEPTH_MIN = DEPTH_MIN
+SAFE_PLAN_DEPTH_MAX = DEPTH_MAX
+
+
+def remap_actions_to_safe_range(actions):
+
+    if actions.ndim != 2 or actions.shape[1] < 5:
+        raise ValueError(
+            "actions must have shape (N, 5), "
+            f"but got {tuple(actions.shape)}"
+        )
+
+    remapped = actions.clone()
+
+    x_ratio = (
+        (
+            remapped[:, 0]
+            -
+            X_MIN
+        )
+        /
+        max(
+            float(X_MAX - X_MIN),
+            1e-8,
+        )
+    ).clamp(
+        0.0,
+        1.0,
+    )
+
+    y_ratio = (
+        (
+            remapped[:, 1]
+            -
+            Y_MIN
+        )
+        /
+        max(
+            float(Y_MAX - Y_MIN),
+            1e-8,
+        )
+    ).clamp(
+        0.0,
+        1.0,
+    )
+
+    remapped[:, 0] = (
+        SAFE_PLAN_X_MIN
+        +
+        x_ratio
+        *
+        (
+            SAFE_PLAN_X_MAX
+            -
+            SAFE_PLAN_X_MIN
+        )
+    )
+
+    remapped[:, 1] = (
+        SAFE_PLAN_Y_MIN
+        +
+        y_ratio
+        *
+        (
+            SAFE_PLAN_Y_MAX
+            -
+            SAFE_PLAN_Y_MIN
+        )
+    )
+
+    length_ratio = (
+        (
+            remapped[:, 3]
+            -
+            LENGTH_MIN
+        )
+        /
+        max(
+            float(LENGTH_MAX - LENGTH_MIN),
+            1e-8,
+        )
+    ).clamp(
+        0.0,
+        1.0,
+    )
+
+    depth_ratio = (
+        (
+            remapped[:, 4]
+            -
+            DEPTH_MIN
+        )
+        /
+        max(
+            float(DEPTH_MAX - DEPTH_MIN),
+            1e-8,
+        )
+    ).clamp(
+        0.0,
+        1.0,
+    )
+
+    remapped[:, 3] = (
+        LENGTH_MIN
+        +
+        length_ratio
+        *
+        (
+            SAFE_PLAN_LENGTH_MAX
+            -
+            LENGTH_MIN
+        )
+    )
+
+    remapped[:, 4] = (
+        SAFE_PLAN_DEPTH_MIN
+        +
+        depth_ratio
+        *
+        (
+            SAFE_PLAN_DEPTH_MAX
+            -
+            SAFE_PLAN_DEPTH_MIN
+        )
+    )
+
+    return remapped
+
+
+def clamp_actions_to_planning_range(
+    actions,
+    repair_endpoints=True,
+):
+    """
+    refinement 결과가 실행 가능한 planning 범위를 벗어나지
+    않도록 값을 직접 제한한다.
+
+    remap_actions_to_safe_range()와 달리 기존 값을 다른 범위로
+    재분배하지 않고 범위 밖의 값만 clamp한다.
+    """
+
+    if actions.ndim != 2 or actions.shape[1] < 5:
+        raise ValueError(
+            "actions must have shape (N, 5), "
+            f"but got {tuple(actions.shape)}"
+        )
+
+    constrained = actions.clone()
+
+    constrained[:, 0] = torch.clamp(
+        constrained[:, 0],
+        SAFE_PLAN_X_MIN,
+        SAFE_PLAN_X_MAX,
+    )
+
+    constrained[:, 1] = torch.clamp(
+        constrained[:, 1],
+        SAFE_PLAN_Y_MIN,
+        SAFE_PLAN_Y_MAX,
+    )
+
+    constrained[:, 2] = wrap_angle(
+        constrained[:, 2]
+    )
+
+    constrained[:, 3] = torch.clamp(
+        constrained[:, 3],
+        LENGTH_MIN,
+        SAFE_PLAN_LENGTH_MAX,
+    )
+
+    constrained[:, 4] = torch.clamp(
+        constrained[:, 4],
+        SAFE_PLAN_DEPTH_MIN,
+        SAFE_PLAN_DEPTH_MAX,
+    )
+
+    if repair_endpoints:
+        constrained = repair_action_endpoints(
+            constrained
+        )
+
+    return constrained
+
+
 @torch.no_grad()
 def greedy_plan_gpu(
     model,
@@ -2062,210 +2269,354 @@ def greedy_plan_gpu(
     w3d=PLAN_W_3D,
     wviz=PLAN_W_VIZ,
     recent_actions=None,
+    candidate_batch_size=1,
 ):
+    """
+    메모리 절약형 greedy MPC planner.
+    Candidate를 작은 batch로 나누어 평가한다.
+    """
 
     current = ensure_bchw(
         state
     )
 
-
     target = ensure_bchw(
         target
+    ).to(
+        device=current.device,
+        dtype=current.dtype,
     )
 
+    horizon = max(
+        1,
+        int(horizon),
+    )
+
+    candidates = max(
+        1,
+        int(candidates),
+    )
+
+    candidate_batch_size = max(
+        1,
+        min(
+            int(candidate_batch_size),
+            candidates,
+        ),
+    )
 
     history = prepare_recent_actions(
-
         recent_actions,
-
         current.device,
-
         current.dtype,
     )
 
-
     plan = []
 
-
-    for _ in range(
+    for horizon_index in range(
         horizon
     ):
 
-        # ====================================================
-        # ERROR-GUIDED + RANDOM CANDIDATES
-        # ====================================================
-
         actions = sample_error_guided_actions_gpu(
-
             current,
-
             target,
-
             candidates,
-
-            device=(
-                current.device
-            ),
-
-            dtype=(
-                current.dtype
-            ),
+            device=current.device,
+            dtype=current.dtype,
         )
 
+        # 로봇이 안정적으로 실행할 수 있는 action 범위
+        # 모델의 원래 정규화 범위는 변경하지 않는다.
+        actions = actions.clone()
 
-        # ====================================================
-        # MODEL PREDICTION
-        # ====================================================
-
-        predictions = (
-            predict_next_batch(
-
-                model,
-
-                current,
-
-                actions,
-            )
+        actions = remap_actions_to_safe_range(
+            actions
         )
 
-
         # ====================================================
-        # CURRENT LOSS BASELINE
+        # TARGET-GUIDED PRESS POSITION
+        #
+        # current > target인 곳은 더 눌러야 하는 배경이다.
+        # A 글자처럼 target이 현재보다 높은 곳은 제외한다.
         # ====================================================
 
-        base_l3d, base_lviz = (
-            compute_loss_baseline(
-
-                current,
-
-                target,
-            )
+        press_need = torch.relu(
+            current[
+                0,
+                0
+            ]
+            -
+            target[
+                0,
+                0
+            ]
+            -
+            0.0005
         )
 
-
-        # ====================================================
-        # NORMALIZED TARGET LOSS
-        # ====================================================
-
-        losses = candidate_losses(
-
-            predictions,
-
-            target,
-
-            w3d=(
-                w3d
-            ),
-
-            wviz=(
-                wviz
-            ),
-
-            base_l3d=(
-                base_l3d
-            ),
-
-            base_lviz=(
-                base_lviz
-            ),
-        )
-
-
-        # ====================================================
-        # SAME-AREA REPEAT PENALTY
-        # ====================================================
-
-        losses = (
-
-            losses
-
-            +
-
-            repeat_action_penalty(
-
-                actions,
-
-                history,
-            )
-        )
-
-
-        # ====================================================
-        # BEST
-        # ====================================================
-
-        best_idx = torch.argmin(
-            losses
-        )
-
-
-        best_action = actions[
-            best_idx
+        press_h = press_need.shape[
+            0
         ]
 
-
-        current = predictions[
-
-            best_idx
-            :
-            best_idx
-            +
+        press_w = press_need.shape[
             1
         ]
 
+        all_pixel_indices = torch.arange(
+            press_h
+            *
+            press_w,
+            device=current.device,
+        )
+
+        all_world_x, all_world_y = pixel_indices_to_world(
+            all_pixel_indices,
+            press_h,
+            press_w,
+            current.device,
+            current.dtype,
+        )
+
+        # 현재 로봇이 안정적으로 도달하는 press 작업 영역
+        safe_position_mask = (
+            (
+                all_world_x
+                >=
+                SAFE_PLAN_X_MIN
+            )
+            &
+            (
+                all_world_x
+                <=
+                SAFE_PLAN_X_MAX
+            )
+            &
+            (
+                all_world_y
+                >=
+                SAFE_PLAN_Y_MIN
+            )
+            &
+            (
+                all_world_y
+                <=
+                SAFE_PLAN_Y_MAX
+            )
+        )
+
+        press_weights = (
+            press_need.reshape(
+                -1
+            )
+            *
+            safe_position_mask.to(
+                dtype=current.dtype
+            )
+        )
+
+        press_weight_sum = torch.sum(
+            press_weights
+        )
+
+        if (
+            float(
+                press_weight_sum.item()
+            )
+            >
+            LOSS_EPS
+        ):
+
+            press_weights = (
+                press_weights
+                /
+                press_weight_sum
+            )
+
+            selected_pixels = torch.multinomial(
+                press_weights,
+                actions.shape[
+                    0
+                ],
+                replacement=True,
+            )
+
+            selected_x, selected_y = pixel_indices_to_world(
+                selected_pixels,
+                press_h,
+                press_w,
+                current.device,
+                current.dtype,
+            )
+
+            actions = actions.clone()
+
+            actions[
+                :,
+                0
+            ] = selected_x
+
+            actions[
+                :,
+                1
+            ] = selected_y
+
+        actions = clamp_actions_to_planning_range(
+            actions
+        )
+
+        base_l3d, base_lviz = compute_loss_baseline(
+            current,
+            target,
+        )
+
+        best_loss_value = None
+        best_action = None
+        best_prediction = None
+
+        for begin in range(
+            0,
+            candidates,
+            candidate_batch_size,
+        ):
+
+            chunk_end = min(
+                begin
+                +
+                candidate_batch_size,
+                candidates,
+            )
+
+            action_chunk = actions[
+                begin:chunk_end
+            ]
+
+            prediction_chunk = predict_next_batch(
+                model,
+                current,
+                action_chunk,
+            )
+
+            loss_chunk = candidate_losses(
+                prediction_chunk,
+                target,
+                w3d=w3d,
+                wviz=wviz,
+                base_l3d=base_l3d,
+                base_lviz=base_lviz,
+            )
+
+            loss_chunk = (
+                loss_chunk
+                +
+                repeat_action_penalty(
+                    action_chunk,
+                    history,
+                )
+            )
+
+            local_index = torch.argmin(
+                loss_chunk
+            )
+
+            local_loss_value = float(
+                loss_chunk[
+                    local_index
+                ].item()
+            )
+
+            if (
+                best_loss_value is None
+                or
+                local_loss_value
+                <
+                best_loss_value
+            ):
+
+                best_loss_value = local_loss_value
+
+                best_action = (
+                    action_chunk[
+                        local_index
+                    ]
+                    .detach()
+                    .clone()
+                )
+
+                best_prediction = (
+                    prediction_chunk[
+                        local_index
+                        :
+                        local_index
+                        +
+                        1
+                    ]
+                    .detach()
+                    .clone()
+                )
+
+            del prediction_chunk
+            del loss_chunk
+
+        if (
+            best_action is None
+            or
+            best_prediction is None
+        ):
+
+            raise RuntimeError(
+                "Greedy planner failed to select an action."
+            )
+
+        current = best_prediction
 
         plan.append(
             best_action
         )
-
-
-        # ====================================================
-        # UPDATE INTERNAL PLAN HISTORY
-        #
-        # greedy horizon 안에서도 동일 지점만
-        # 계속 고르는 것을 방지한다.
-        # ====================================================
 
         best_action_batch = best_action[
             None,
             :
         ]
 
-
         if history is None:
 
-            history = (
-                best_action_batch
-            )
-
+            history = best_action_batch
 
         else:
 
             history = torch.cat(
-
                 [
                     history,
                     best_action_batch,
                 ],
-
                 dim=0,
             )
 
-
-            if history.shape[
-                0
-            ] > RECENT_ACTION_HISTORY:
+            if (
+                history.shape[0]
+                >
+                RECENT_ACTION_HISTORY
+            ):
 
                 history = history[
-
                     -RECENT_ACTION_HISTORY:
                 ]
 
+        print(
+            f"[GREEDY {horizon_index + 1:02d}/"
+            f"{horizon:02d}] "
+            f"loss={best_loss_value:.6f} "
+            f"x={float(best_action[0].item()):.4f} "
+            f"y={float(best_action[1].item()):.4f} "
+            f"theta={float(best_action[2].item()):+.3f} "
+            f"length={float(best_action[3].item()) * 1000.0:.1f}mm "
+            f"depth={float(best_action[4].item()) * 1000.0:.1f}mm"
+        )
+
+        del actions
 
     return torch.stack(
-
         plan,
-
         dim=0,
     )
 
@@ -2889,6 +3240,73 @@ def endpoint_penalty(
 # endpoint penalty
 # ============================================================
 
+def refinement_objective(
+    model,
+    current,
+    target,
+    action,
+    base_l3d,
+    base_lviz,
+    w3d,
+    wviz,
+    history,
+):
+    """단일 refinement action의 전체 목적함수와 예측 상태."""
+
+    predicted = predict_next_batch(
+        model,
+        current,
+        action,
+    )
+
+    l3d, lviz = loss_components(
+        predicted,
+        target,
+    )
+
+    normalized_l3d = (
+        torch.mean(l3d)
+        /
+        base_l3d
+    )
+
+    normalized_lviz = (
+        torch.mean(lviz)
+        /
+        base_lviz
+    )
+
+    target_loss = (
+        w3d
+        *
+        normalized_l3d
+        +
+        wviz
+        *
+        normalized_lviz
+    )
+
+    history_loss = plan_history_penalty(
+        action,
+        history,
+    )
+
+    boundary_loss = endpoint_penalty(
+        action
+    )
+
+    loss = (
+        target_loss
+        +
+        history_loss
+        +
+        2.0
+        *
+        boundary_loss
+    )
+
+    return loss, predicted
+
 def refine_plan_gpu(
     model,
     state,
@@ -2897,216 +3315,194 @@ def refine_plan_gpu(
     w3d=PLAN_W_3D,
     wviz=PLAN_W_VIZ,
     recent_actions=None,
+    max_refine_actions=5,
+    refine_steps=REFINE_STEPS,
 ):
+    """
+    메모리 절약형 differentiable refinement.
 
-    state = ensure_bchw(
-        state
+    앞쪽 action을 한 개씩 refinement하며, refinement 결과가
+    원래 greedy action보다 나빠지면 원래 action으로 되돌린다.
+    모든 결과는 planning 실행 범위 안으로 제한한다.
+    """
+
+    state = ensure_bchw(state)
+    target = ensure_bchw(target).to(
+        device=state.device,
+        dtype=state.dtype,
     )
 
-
-    target = ensure_bchw(
-        target
+    refined_plan = clamp_actions_to_planning_range(
+        initial_plan.detach().clone()
     )
 
+    refine_steps = max(0, int(refine_steps))
+    max_refine_actions = max(0, int(max_refine_actions))
 
-    recent = prepare_recent_actions(
+    if refine_steps == 0 or max_refine_actions == 0:
+        return refined_plan
 
+    refine_count = min(
+        refined_plan.shape[0],
+        max_refine_actions,
+    )
+
+    current = state.detach()
+    history = prepare_recent_actions(
         recent_actions,
-
         state.device,
-
         state.dtype,
     )
 
-
-    # --------------------------------------------------------
-    # fixed baseline from the current physical state.
-    # --------------------------------------------------------
-
-    with torch.no_grad():
-
-        base_l3d, base_lviz = (
-            compute_loss_baseline(
-
-                state,
-
+    for action_index in range(refine_count):
+        with torch.no_grad():
+            base_l3d, base_lviz = compute_loss_baseline(
+                current,
                 target,
             )
+
+            original_action = refined_plan[
+                action_index:action_index + 1
+            ].detach().clone()
+
+            (
+                original_loss,
+                original_prediction,
+            ) = refinement_objective(
+                model,
+                current,
+                target,
+                original_action,
+                base_l3d,
+                base_lviz,
+                w3d,
+                wviz,
+                history,
+            )
+
+            original_loss_value = float(
+                original_loss.item()
+            )
+
+        raw = encode_actions(
+            original_action
+        ).detach()
+        raw.requires_grad_(True)
+
+        optimizer = torch.optim.Adam(
+            [raw],
+            lr=PLAN_LR,
         )
 
+        for _ in range(refine_steps):
+            # repair_action_endpoints()의 indexed in-place 연산은
+            # gradient 경로를 불안정하게 만들 수 있으므로 최적화
+            # 중에는 값 범위만 제한하고 endpoint는 penalty로 다룬다.
+            action = clamp_actions_to_planning_range(
+                decode_actions(raw),
+                repair_endpoints=False,
+            )
 
-    raw = encode_actions(
+            loss, predicted = refinement_objective(
+                model,
+                current,
+                target,
+                action,
+                base_l3d,
+                base_lviz,
+                w3d,
+                wviz,
+                history,
+            )
 
-        initial_plan
-    ).detach()
+            optimizer.zero_grad(set_to_none=True)
 
+            raw_gradient = torch.autograd.grad(
+                loss,
+                raw,
+                retain_graph=False,
+                create_graph=False,
+            )[0]
 
-    raw.requires_grad_(
-        True
+            raw.grad = raw_gradient
+
+            torch.nn.utils.clip_grad_norm_(
+                [raw],
+                max_norm=5.0,
+            )
+
+            optimizer.step()
+
+            del predicted
+            del loss
+            del raw_gradient
+
+        refined_action = clamp_actions_to_planning_range(
+            decode_actions(raw).detach()
+        )
+
+        with torch.no_grad():
+            (
+                refined_loss,
+                refined_prediction,
+            ) = refinement_objective(
+                model,
+                current,
+                target,
+                refined_action,
+                base_l3d,
+                base_lviz,
+                w3d,
+                wviz,
+                history,
+            )
+
+            refined_loss_value = float(
+                refined_loss.item()
+            )
+
+        # refinement가 greedy action을 악화시키면 원래 action 유지
+        if refined_loss_value <= original_loss_value:
+            selected_action = refined_action
+            selected_prediction = refined_prediction.detach()
+            final_loss_value = refined_loss_value
+            refine_status = "accepted"
+        else:
+            selected_action = original_action
+            selected_prediction = original_prediction.detach()
+            final_loss_value = original_loss_value
+            refine_status = "reverted"
+
+        refined_plan[
+            action_index:action_index + 1
+        ] = selected_action
+
+        current = selected_prediction
+
+        if history is None:
+            history = selected_action
+        else:
+            history = torch.cat(
+                [history, selected_action],
+                dim=0,
+            )
+
+            if history.shape[0] > RECENT_ACTION_HISTORY:
+                history = history[-RECENT_ACTION_HISTORY:]
+
+        print(
+            f"[REFINE {action_index + 1:02d}/"
+            f"{refine_count:02d}] "
+            f"loss={final_loss_value:.6f} "
+            f"status={refine_status}"
+        )
+
+        del raw
+        del optimizer
+
+    return clamp_actions_to_planning_range(
+        refined_plan
     )
-
-
-    optimizer = torch.optim.Adam(
-
-        [
-            raw
-        ],
-
-        lr=(
-            PLAN_LR
-        ),
-    )
-
-
-    for _ in range(
-        REFINE_STEPS
-    ):
-
-        actions = decode_actions(
-            raw
-        )
-
-
-        predicted = rollout(
-
-            model,
-
-            state,
-
-            actions,
-        )
-
-
-        l3d, lviz = loss_components(
-
-            predicted,
-
-            target,
-        )
-
-
-        normalized_l3d = (
-
-            torch.mean(
-                l3d
-            )
-
-            /
-
-            base_l3d
-        )
-
-
-        normalized_lviz = (
-
-            torch.mean(
-                lviz
-            )
-
-            /
-
-            base_lviz
-        )
-
-
-        target_loss = (
-
-            w3d
-
-            *
-
-            normalized_l3d
-
-            +
-
-            wviz
-
-            *
-
-            normalized_lviz
-        )
-
-
-        spread_loss = (
-            plan_spread_penalty(
-                actions
-            )
-        )
-
-
-        history_loss = (
-            plan_history_penalty(
-
-                actions,
-
-                recent,
-            )
-        )
-
-
-        boundary_loss = (
-            endpoint_penalty(
-                actions
-            )
-        )
-
-
-        loss = (
-
-            target_loss
-
-            +
-
-            spread_loss
-
-            +
-
-            history_loss
-
-            +
-
-            2.0
-            *
-            boundary_loss
-        )
-
-
-        optimizer.zero_grad(
-            set_to_none=True
-        )
-
-
-        loss.backward()
-
-
-        torch.nn.utils.clip_grad_norm_(
-
-            [
-                raw
-            ],
-
-            max_norm=5.0,
-        )
-
-
-        optimizer.step()
-
-
-    actions = decode_actions(
-        raw
-    ).detach()
-
-
-    # --------------------------------------------------------
-    # final GPU safety correction
-    # --------------------------------------------------------
-
-    actions = repair_action_endpoints(
-        actions
-    )
-
-
-    return actions
 
 
 # ============================================================

@@ -1867,6 +1867,48 @@ class VisualSculptingSimulator:
                 shadow=False,
 
                 plane_reflection=False,
+
+                background_color=(
+                    0.025,
+                    0.030,
+                    0.040,
+                ),
+
+                ambient_light=(
+                    0.055,
+                    0.055,
+                    0.060,
+                ),
+
+                lights=[
+                    gs.options.vis.DirectionalLight(
+                        dir=(
+                            0.65,
+                            -0.75,
+                            -1.0,
+                        ),
+                        color=(
+                            1.0,
+                            0.92,
+                            0.82,
+                        ),
+                        intensity=3.5,
+                    ),
+
+                    gs.options.vis.DirectionalLight(
+                        dir=(
+                            -0.45,
+                            0.65,
+                            -1.0,
+                        ),
+                        color=(
+                            0.70,
+                            0.80,
+                            1.0,
+                        ),
+                        intensity=1.0,
+                    ),
+                ],
             ),
 
             show_viewer=SHOW_VIEWER,
@@ -1978,8 +2020,8 @@ class VisualSculptingSimulator:
 
                 color=(
                     0.82,
-                    0.70,
-                    0.53,
+                    0.82,
+                    0.78,
                     1.0,
                 ),
 

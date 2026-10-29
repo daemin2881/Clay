@@ -165,50 +165,12 @@ PARTICLE_SURFACE_OFFSET = (
 
 MATERIAL_PRESETS = {
 
-    # --------------------------------------------------------
-    # SOFT
-    #
-    # Kept unchanged for now.
-    # --------------------------------------------------------
-
     "soft": {
-
-        "E":
-        8.0e3,
-
-        "nu":
-        0.30,
-
-        "rho":
-        1200.0,
-
-        "yield_stress":
-        130.0,
+        "E": 8.0e3,
+        "nu": 0.30,
+        "rho": 1200.0,
+        "yield_stress": 130.0,
     },
-
-
-    # --------------------------------------------------------
-    # MEDIUM
-    #
-    # UPDATED:
-    #
-    # Previous:
-    # E            = 12,000 Pa
-    # yield_stress =    180 Pa
-    #
-    # Problem:
-    # after one push, passive relaxation was larger than
-    # the actual immediate push deformation.
-    #
-    # Test:
-    # E            = 30,000 Pa
-    # yield_stress =  1,000 Pa
-    #
-    # Goal:
-    # - resist gravity/passive flow
-    # - preserve local plastic deformation
-    # - still deform under 1~8 mm tool pushes
-    # --------------------------------------------------------
 
     "medium": {
         "E": 2.0e4,
@@ -217,25 +179,11 @@ MATERIAL_PRESETS = {
         "yield_stress": 300.0,
     },
 
-    # --------------------------------------------------------
-    # HARD
-    #
-    # Kept unchanged for now.
-    # --------------------------------------------------------
-
     "hard": {
-
-        "E":
-        2.0e4,
-
-        "nu":
-        0.30,
-
-        "rho":
-        1200.0,
-
-        "yield_stress":
-        260.0,
+        "E": 2.0e4,
+        "nu": 0.30,
+        "rho": 1200.0,
+        "yield_stress": 260.0,
     },
 }
 
@@ -509,9 +457,7 @@ ACTION_THETA_MIN = -math.pi
 ACTION_THETA_MAX = math.pi
 
 
-
-# 5mm의 짧은 push부터
-# 점토 사용 가능 영역의 한쪽 끝에서 반대쪽 끝까지
+# 5 mm의 짧은 push부터 점토 사용 가능 영역 전체까지
 ACTION_LENGTH_MIN = 0.005
 
 ACTION_LENGTH_MAX = min(
@@ -520,8 +466,7 @@ ACTION_LENGTH_MAX = min(
 ) - 2.0 * WORKSPACE_MARGIN
 
 
-# 1mm의 얕은 push부터
-# 바닥 위 10mm를 남기는 깊은 push까지
+# 1 mm의 얕은 push부터 바닥 위 10 mm를 남기는 깊이까지
 ACTION_DEPTH_MIN = 0.001
 
 ACTION_DEPTH_MAX = (
@@ -580,6 +525,9 @@ COLLECTION_MAX_RESAMPLE = 20
 
 # ============================================================
 # DEPTH STRATIFICATION
+#
+# 전체 action depth 범위:
+# 1 mm ~ 50 mm
 # ============================================================
 
 COLLECTION_DEPTH_SHALLOW_RATIO = 0.30
@@ -589,23 +537,29 @@ COLLECTION_DEPTH_MEDIUM_RATIO = 0.45
 COLLECTION_DEPTH_DEEP_RATIO = 0.25
 
 
+# 1 mm ~ 10 mm
 COLLECTION_DEPTH_SHALLOW_MIN = 0.001
 
-COLLECTION_DEPTH_SHALLOW_MAX = 0.003
+COLLECTION_DEPTH_SHALLOW_MAX = 0.010
 
 
-COLLECTION_DEPTH_MEDIUM_MIN = 0.003
+# 10 mm ~ 30 mm
+COLLECTION_DEPTH_MEDIUM_MIN = 0.010
 
-COLLECTION_DEPTH_MEDIUM_MAX = 0.006
+COLLECTION_DEPTH_MEDIUM_MAX = 0.030
 
 
-COLLECTION_DEPTH_DEEP_MIN = 0.006
+# 30 mm ~ 50 mm
+COLLECTION_DEPTH_DEEP_MIN = 0.030
 
-COLLECTION_DEPTH_DEEP_MAX = 0.008
+COLLECTION_DEPTH_DEEP_MAX = 0.050
 
 
 # ============================================================
 # LENGTH STRATIFICATION
+#
+# 전체 action length 범위:
+# 5 mm ~ 324 mm
 # ============================================================
 
 COLLECTION_LENGTH_SHORT_RATIO = 0.30
@@ -615,19 +569,24 @@ COLLECTION_LENGTH_MEDIUM_RATIO = 0.45
 COLLECTION_LENGTH_LONG_RATIO = 0.25
 
 
-COLLECTION_LENGTH_SHORT_MIN = 0.012
+# 5 mm ~ 80 mm
+COLLECTION_LENGTH_SHORT_MIN = 0.005
 
-COLLECTION_LENGTH_SHORT_MAX = 0.028
-
-
-COLLECTION_LENGTH_MEDIUM_MIN = 0.028
-
-COLLECTION_LENGTH_MEDIUM_MAX = 0.048
+COLLECTION_LENGTH_SHORT_MAX = 0.080
 
 
-COLLECTION_LENGTH_LONG_MIN = 0.048
+# 80 mm ~ 200 mm
+COLLECTION_LENGTH_MEDIUM_MIN = 0.080
 
-COLLECTION_LENGTH_LONG_MAX = 0.065
+COLLECTION_LENGTH_MEDIUM_MAX = 0.200
+
+
+# 200 mm ~ 324 mm
+COLLECTION_LENGTH_LONG_MIN = 0.200
+
+COLLECTION_LENGTH_LONG_MAX = (
+    ACTION_LENGTH_MAX
+)
 
 
 # ============================================================
@@ -654,11 +613,16 @@ PRECONTACT_HEIGHT = 0.002
 
 
 TRAVEL_STEPS = 300
+
 DOWN_STEPS = 200
+
 PUSH_STEPS = 12
+
 UP_STEPS = 300
 
+
 HOLD_STEPS = 20
+
 SETTLE_STEPS = 20
 
 
@@ -699,7 +663,7 @@ COLLECTION_BUFFER_SIZE = 32
 # TRAINING
 # ============================================================
 
-BATCH_SIZE = 16
+BATCH_SIZE = 4
 
 LEARNING_RATE = 1e-4
 
@@ -714,13 +678,13 @@ SEED = 0
 # PLANNER
 # ============================================================
 
-PLAN_HORIZON = 40
+PLAN_HORIZON = 5
 
-MPC_EXECUTE = 5
+MPC_EXECUTE = 1
 
-GREEDY_CANDIDATES = 64
+GREEDY_CANDIDATES = 2
 
-REFINE_STEPS = 15
+REFINE_STEPS = 0
 
 PLAN_LR = 0.03
 
@@ -865,19 +829,19 @@ def print_config_summary():
 
     print(
         "material =",
-        MATERIAL_NAME
+        MATERIAL_NAME,
     )
 
 
     print(
         "E =",
-        CLAY_E
+        CLAY_E,
     )
 
 
     print(
         "yield stress =",
-        CLAY_YIELD_STRESS
+        CLAY_YIELD_STRESS,
     )
 
 
@@ -924,6 +888,40 @@ def print_config_summary():
 
 
     print(
+        "length stratification =",
+        (
+            COLLECTION_LENGTH_SHORT_MIN,
+            COLLECTION_LENGTH_SHORT_MAX,
+        ),
+        (
+            COLLECTION_LENGTH_MEDIUM_MIN,
+            COLLECTION_LENGTH_MEDIUM_MAX,
+        ),
+        (
+            COLLECTION_LENGTH_LONG_MIN,
+            COLLECTION_LENGTH_LONG_MAX,
+        ),
+    )
+
+
+    print(
+        "depth stratification =",
+        (
+            COLLECTION_DEPTH_SHALLOW_MIN,
+            COLLECTION_DEPTH_SHALLOW_MAX,
+        ),
+        (
+            COLLECTION_DEPTH_MEDIUM_MIN,
+            COLLECTION_DEPTH_MEDIUM_MAX,
+        ),
+        (
+            COLLECTION_DEPTH_DEEP_MIN,
+            COLLECTION_DEPTH_DEEP_MAX,
+        ),
+    )
+
+
+    print(
         "tip diameter =",
         TOOL_TIP_RADIUS
         *
@@ -939,3 +937,5 @@ def print_config_summary():
 if __name__ == "__main__":
 
     print_config_summary()
+# 기존 실험 코드와의 호환용 별칭
+RESULT_DIR = RESULTS_DIR
