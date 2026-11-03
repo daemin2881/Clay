@@ -48,6 +48,24 @@ from vs_config import (
     HOLD_STEPS,
     SETTLE_STEPS,
 )
+import os
+
+# TIP_CORRECTION_TOGGLE
+TIP_CORRECTION_ENABLED = (
+    os.environ.get(
+        "VS_TIP_CORRECTION",
+        "1",
+    )
+    .strip()
+    .lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
 
 
 BASE_DIR = Path(BASE_DIR)
@@ -1861,55 +1879,61 @@ class VisualSculptingSimulator:
             ),
 
             vis_options=gs.options.VisOptions(
+            show_world_frame=False,
 
-                visualize_mpm_boundary=False,
-
-                shadow=False,
-
-                plane_reflection=False,
-
-                background_color=(
-                    0.025,
-                    0.030,
-                    0.040,
-                ),
-
-                ambient_light=(
-                    0.055,
-                    0.055,
-                    0.060,
-                ),
-
-                lights=[
-                    gs.options.vis.DirectionalLight(
-                        dir=(
-                            0.65,
-                            -0.75,
-                            -1.0,
-                        ),
-                        color=(
-                            1.0,
-                            0.92,
-                            0.82,
-                        ),
-                        intensity=3.5,
-                    ),
-
-                    gs.options.vis.DirectionalLight(
-                        dir=(
-                            -0.45,
-                            0.65,
-                            -1.0,
-                        ),
-                        color=(
-                            0.70,
-                            0.80,
-                            1.0,
-                        ),
-                        intensity=1.0,
-                    ),
-                ],
+            # 짙은 청회색 배경으로 점토 윤곽을 분리한다.
+            background_color=(
+                0.055,
+                0.075,
+                0.095,
             ),
+
+            # 환경광을 거의 제거해 미세한 높이 차도
+            # 밝고 어두운 면으로 드러나게 한다.
+            ambient_light=(
+                0.015,
+                0.015,
+                0.015,
+            ),
+
+            lights=[
+                # 낮은 각도의 강한 측면광.
+                # 눌린 홈과 융기에 강한 명암을 만든다.
+                gs.options.vis.DirectionalLight(
+                    dir=(
+                        0.88,
+                        -0.42,
+                        -0.25,
+                    ),
+                    color=(
+                        1.0,
+                        1.0,
+                        1.0,
+                    ),
+                    intensity=7.5,
+                ),
+
+                # 완전히 검게 뭉개지는 부분만 살리는
+                # 매우 약한 반대쪽 보조광.
+                gs.options.vis.DirectionalLight(
+                    dir=(
+                        -0.35,
+                        0.20,
+                        -1.0,
+                    ),
+                    color=(
+                        1.0,
+                        1.0,
+                        1.0,
+                    ),
+                    intensity=0.20,
+                ),
+            ],
+
+            # 로봇 그림자가 점토를 가리는 현상 방지.
+            shadow=False,
+            plane_reflection=False,
+        ),
 
             show_viewer=SHOW_VIEWER,
         )
@@ -2311,89 +2335,67 @@ class VisualSculptingSimulator:
         self,
         position,
     ):
+        """
+        현재 실제 관절 상태를 초기값으로 사용하는 IK.
+
+        이전 명령 목표가 아니라 실제 q를 기준으로 계산하여
+        로봇 추종 지연이 다음 IK 계산에 누적되는 것을 막는다.
+        """
 
         position = torch.as_tensor(
-
             position,
-
             device=self.device,
-
             dtype=self.dtype,
+        ).reshape(-1)[:3]
+
+        actual_q = self.robot.get_dofs_position(
+            dofs_idx_local=self.dof_idx
         )
 
+        if actual_q.ndim > 1:
+            actual_q = actual_q[0]
 
-        q = self.robot.inverse_kinematics(
-
-            link=self.tip,
-
-            pos=position,
-
-            quat=self.tool_quat_down,
-
-            init_qpos=self.last_q,
-
-            respect_joint_limit=True,
-
-            max_samples=1,
-
-            max_solver_iters=40,
-
-            damping=0.08,
-
-            pos_tol=0.0015,
-
-            rot_tol=0.008,
-
-            max_step_size=0.10,
-
-            dofs_idx_local=self.dof_idx,
-        )
-
-
-        if not torch.is_tensor(
-            q
-        ):
-
-            q = torch.as_tensor(
-
-                q,
-
-                device=self.device,
-
-                dtype=self.dtype,
-            )
-
-
-        if q.ndim > 1:
-
-            q = q[
-                0
-            ]
-
-
-        q = q[
-            :7
-        ]
-
-
-        if not torch.isfinite(
-            q
-        ).all():
-
-            raise RuntimeError(
-
-                "IK returned "
-                "non-finite q."
-            )
-
-
-        self.last_q = (
-
-            q
+        actual_q = (
+            actual_q[:7]
             .detach()
             .clone()
         )
 
+        q = self.robot.inverse_kinematics(
+            link=self.tip,
+            pos=position,
+            quat=self.tool_quat_down,
+            init_qpos=(actual_q if TIP_CORRECTION_ENABLED else self.last_q),
+            respect_joint_limit=True,
+            max_samples=1,
+            max_solver_iters=80,
+            damping=0.05,
+            pos_tol=0.0015,
+            rot_tol=0.008,
+            max_step_size=0.10,
+            dofs_idx_local=self.dof_idx,
+        )
+
+        if not torch.is_tensor(q):
+            q = torch.as_tensor(
+                q,
+                device=self.device,
+                dtype=self.dtype,
+            )
+
+        if q.ndim > 1:
+            q = q[0]
+
+        q = q[:7]
+
+        if not torch.isfinite(q).all():
+            raise RuntimeError(
+                "IK returned non-finite q."
+            )
+
+        self.last_q = (
+            q.detach().clone()
+        )
 
         return q
 
@@ -2500,24 +2502,235 @@ class VisualSculptingSimulator:
     # MOVE TIP
     # ========================================================
 
+    def hold_tip_target(
+        self,
+        target,
+        q_target,
+        tolerance_m=0.002,
+        max_steps=300,
+        check_every=5,
+        label="TIP TARGET",
+        correction_every=50,
+        correction_gain=0.85,
+        max_correction_m=0.010,
+    ):
+        """
+        Cartesian 폐루프 보정.
+
+        같은 q를 계속 유지해도 남는 정적 위치 편향을 측정하고,
+        실제 오차의 반대 방향으로 IK 목표를 보정한다.
+        """
+
+        target = torch.as_tensor(
+            target,
+            device=self.device,
+            dtype=self.dtype,
+        ).reshape(-1)[:3]
+
+        command_q = torch.as_tensor(
+            q_target,
+            device=self.device,
+            dtype=self.dtype,
+        ).reshape(-1)[:7].detach().clone()
+
+        # 누적 Cartesian 보정 목표.
+        # 매 correction마다 원래 target으로 되돌아가지 않고
+        # 이전 보정 목표에 residual correction을 계속 더한다.
+        compensated_target = target.detach().clone()
+
+        tolerance_m = max(
+            1e-5,
+            float(tolerance_m),
+        )
+
+        max_steps = max(
+            1,
+            int(max_steps),
+        )
+
+        check_every = max(
+            1,
+            int(check_every),
+        )
+
+        correction_every = max(
+            check_every,
+            int(correction_every),
+        )
+
+        correction_gain = float(
+            correction_gain
+        )
+
+        max_correction_m = max(
+            1e-5,
+            float(max_correction_m),
+        )
+
+        converged = False
+        final_error_m = float("inf")
+        used_steps = 0
+        correction_count = 0
+
+        for control_index in (range(
+            max_steps
+        ) if TIP_CORRECTION_ENABLED else range(0)):
+            self.robot.control_dofs_position(
+                position=command_q,
+                dofs_idx_local=self.dof_idx,
+            )
+
+            self.step()
+
+            used_steps = control_index + 1
+
+            should_check = (
+                used_steps % check_every == 0
+                or
+                used_steps == max_steps
+            )
+
+            if not should_check:
+                continue
+
+            actual = (
+                self.tip
+                .get_pos()
+                .detach()
+                .reshape(-1)[:3]
+            )
+
+            error_vector = (
+                target - actual
+            )
+
+            error_norm = torch.linalg.vector_norm(
+                error_vector
+            )
+
+            final_error_m = float(
+                error_norm.item()
+            )
+
+            if final_error_m <= tolerance_m:
+                converged = True
+                break
+
+            should_correct = (
+                used_steps % correction_every == 0
+                and
+                used_steps < max_steps
+            )
+
+            if should_correct:
+                correction = (
+                    correction_gain
+                    *
+                    error_vector
+                )
+
+                correction_norm = torch.linalg.vector_norm(
+                    correction
+                )
+
+                correction_scale = torch.clamp(
+                    max_correction_m
+                    /
+                    correction_norm.clamp_min(1e-8),
+                    max=1.0,
+                )
+
+                correction = (
+                    correction
+                    *
+                    correction_scale
+                )
+
+                compensated_target = (
+                    compensated_target
+                    +
+                    correction
+                )
+
+                command_q = self.solve_ik(
+                    compensated_target
+                )
+
+                correction_count += 1
+
+                print(
+                    f"[{label} CORRECTION] "
+                    f"round={correction_count} "
+                    f"residual={final_error_m * 1000.0:.2f}mm "
+                    f"offset=("
+                    f"{correction[0].item() * 1000.0:+.1f}, "
+                    f"{correction[1].item() * 1000.0:+.1f}, "
+                    f"{correction[2].item() * 1000.0:+.1f}"
+                    f")mm"
+                )
+
+        actual = (
+            self.tip
+            .get_pos()
+            .detach()
+            .reshape(-1)[:3]
+        )
+
+        error_mm = (
+            actual - target
+        ) * 1000.0
+
+        if converged:
+            print(
+                f"[{label} CONVERGED] "
+                f"steps={used_steps} "
+                f"corrections={correction_count} "
+                f"norm={final_error_m * 1000.0:.2f}mm"
+            )
+        else:
+            print(
+                f"[{label} WARNING] "
+                f"steps={used_steps} "
+                f"corrections={correction_count} "
+                f"norm={final_error_m * 1000.0:.2f}mm "
+                f"error=("
+                f"{error_mm[0].item():+.1f}, "
+                f"{error_mm[1].item():+.1f}, "
+                f"{error_mm[2].item():+.1f}"
+                f")mm"
+            )
+
+        return command_q
+
+
     def move_tip(
         self,
         target,
         steps,
     ):
-
         q_target = self.solve_ik(
-
             target
         )
 
-
-        return self.move_q(
-
+        self.move_q(
             q_target,
-
             steps,
         )
+
+        q_target = self.hold_tip_target(
+            target,
+            q_target,
+            tolerance_m=0.002,
+            max_steps=300,
+            check_every=5,
+            label="MOVE TIP",
+        )
+
+        self.last_q = (
+            q_target.detach().clone()
+        )
+
+        return q_target
 
 
     # ========================================================
@@ -2530,84 +2743,69 @@ class VisualSculptingSimulator:
         end,
         steps,
     ):
+        """
+        기존 선형 경로를 실행한 뒤 마지막 endpoint에서만
+        실제 tip 수렴을 확인한다.
+        """
 
         start = torch.as_tensor(
-
             start,
-
             device=self.device,
-
             dtype=self.dtype,
-        )
-
+        ).reshape(-1)[:3]
 
         end = torch.as_tensor(
-
             end,
-
             device=self.device,
-
             dtype=self.dtype,
-        )
-
+        ).reshape(-1)[:3]
 
         steps = max(
-
             1,
-
-            int(
-                steps
-            ),
+            int(steps),
         )
-
 
         last_q = None
 
-
-        for i in range(
+        for step_index in range(
             steps
         ):
-
-            u = (
-
-                i
-                +
-                1
-
+            interpolation = (
+                step_index + 1
             ) / steps
 
-
             position = torch.lerp(
-
                 start,
-
                 end,
-
-                float(
-                    u
-                ),
+                float(interpolation),
             )
 
-
             q = self.solve_ik(
-
                 position
             )
 
-
             self.robot.control_dofs_position(
-
                 position=q,
-
                 dofs_idx_local=self.dof_idx,
             )
 
-
             self.step()
-
 
             last_q = q
 
+        if last_q is not None:
+            last_q = self.hold_tip_target(
+                end,
+                last_q,
+                tolerance_m=0.002,
+                max_steps=300,
+                check_every=5,
+                label="LINEAR TIP",
+            )
+
+            self.last_q = (
+                last_q.detach().clone()
+            )
 
         return last_q
 
@@ -3419,7 +3617,7 @@ class VisualSculptingSimulator:
             )
 
 
-            # 각 지점의 관절 목표를 50 step 동안 유지
+            # 각 지점의 관절 목표를 먼저 50 step 동안 유지
             for _ in range(
                 50
             ):
@@ -3433,6 +3631,38 @@ class VisualSculptingSimulator:
 
 
                 self.step()
+
+
+            # ------------------------------------------------
+            # PUSH WAYPOINT CARTESIAN CORRECTION
+            #
+            # 기존에는 50 step 유지 후 실제 tip 오차가
+            # 3~6 mm 남아도 그대로 다음 waypoint로 넘어갔다.
+            #
+            # reachable workspace 안에서는 각 push waypoint를
+            # 짧게 보정하여 2 mm 안쪽으로 맞춘다.
+            # ------------------------------------------------
+
+            q = self.hold_tip_target(
+
+                position,
+
+                q,
+
+                tolerance_m=0.002,
+
+                max_steps=120,
+
+                check_every=5,
+
+                label=f"PUSH TIP {i:02d}",
+
+                correction_every=20,
+
+                correction_gain=0.90,
+
+                max_correction_m=0.010,
+            )
 
 
             print_tip_error(
@@ -3486,6 +3716,51 @@ class VisualSculptingSimulator:
             UP_STEPS,
         )
 
+
+        # ---------------------------------------------------------
+        # LIFT RECOVERY
+        # Lift 후 Cartesian 오차가 큰 경우 현재 자세에서 다시 IK
+        # ---------------------------------------------------------
+        actual_lift = (
+            self.tip
+            .get_pos()
+            .detach()
+            .reshape(-1)[:3]
+        )
+
+        lift_error_m = torch.linalg.vector_norm(
+            actual_lift - hover_end
+        )
+
+        if float(lift_error_m.item()) > 0.003:
+            print(
+                "[LIFT RECOVERY] "
+                f"initial_error={float(lift_error_m.item()) * 1000.0:.2f}mm"
+            )
+
+            q_recover = self.solve_ik(
+                hover_end
+            )
+
+            self.move_q(
+                q_recover,
+                max(
+                    UP_STEPS,
+                    10,
+                ),
+            )
+
+            q_up = self.hold_tip_target(
+                hover_end,
+                q_recover,
+                tolerance_m=0.002,
+                max_steps=300,
+                check_every=5,
+                label="LIFT RECOVERY",
+                correction_every=50,
+                correction_gain=0.90,
+                max_correction_m=0.010,
+            )
 
         print_tip_error(
 

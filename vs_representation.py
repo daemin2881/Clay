@@ -28,6 +28,10 @@ def get_sobel(
     dtype,
 ):
 
+    device = torch.device(
+        device
+    )
+
     key = (
         str(device),
         str(dtype),
@@ -51,8 +55,8 @@ def get_sobel(
     ky = torch.tensor(
         [[[
             [-1.0, -2.0, -1.0],
-            [ 0.0,  0.0,  0.0],
-            [ 1.0,  2.0,  1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 1.0],
         ]]],
         device=device,
         dtype=dtype,
@@ -95,6 +99,13 @@ def ensure_bchw(
     x,
 ):
 
+    if not torch.is_tensor(
+        x
+    ):
+        x = torch.as_tensor(
+            x
+        )
+
     if x.ndim == 2:
         x = x[
             None,
@@ -106,6 +117,12 @@ def ensure_bchw(
             :,
             None
         ]
+
+    if x.ndim != 4:
+        raise ValueError(
+            "Expected a 2D, 3D, or 4D tensor, "
+            f"but got shape={tuple(x.shape)}"
+        )
 
     return x
 
@@ -174,6 +191,10 @@ def world_grid(
     device,
     dtype,
 ):
+
+    device = torch.device(
+        device
+    )
 
     key = (
         str(device),
@@ -285,7 +306,9 @@ def actual_to_canonical(
         image
     )
 
-    B = image.shape[0]
+    B = image.shape[
+        0
+    ]
 
     device = image.device
 
@@ -414,7 +437,9 @@ def canonical_to_actual(
         image
     )
 
-    B = image.shape[0]
+    B = image.shape[
+        0
+    ]
 
     device = image.device
 
@@ -539,6 +564,10 @@ def edge_mask(
     device,
 ):
 
+    device = torch.device(
+        device
+    )
+
     key = str(
         device
     )
@@ -604,13 +633,6 @@ def edge_mask(
 
 # ============================================================
 # GPU TARGET ADJUSTMENT
-#
-# 논문 Eq.(3)(4)에 대응:
-#
-# - edge = current
-# - material amount 맞춤
-# - table/height constraint
-# - alpha를 가능한 크게
 # ============================================================
 
 def adjust_target_to_state_gpu(
@@ -618,6 +640,13 @@ def adjust_target_to_state_gpu(
     raw_target,
     iterations=150,
 ):
+
+    if not torch.is_tensor(
+        current
+    ):
+        current = torch.as_tensor(
+            current
+        )
 
     if current.ndim == 4:
         current = current[
@@ -630,6 +659,26 @@ def adjust_target_to_state_gpu(
             0
         ]
 
+    if current.ndim != 2:
+        raise ValueError(
+            "Expected current to be a 2D height map, "
+            f"but got shape={tuple(current.shape)}"
+        )
+
+    current = current.detach()
+
+    device = current.device
+
+    dtype = current.dtype
+
+    # 핵심 수정:
+    # raw_target을 current와 동일한 GPU와 dtype으로 이동한다.
+    raw_target = torch.as_tensor(
+        raw_target,
+        device=device,
+        dtype=dtype,
+    )
+
     if raw_target.ndim == 4:
         raw_target = raw_target[
             0,
@@ -641,16 +690,29 @@ def adjust_target_to_state_gpu(
             0
         ]
 
-    device = current.device
+    if raw_target.ndim != 2:
+        raise ValueError(
+            "Expected raw_target to be a 2D height map, "
+            f"but got shape={tuple(raw_target.shape)}"
+        )
 
-    dtype = current.dtype
+    raw_target = raw_target.detach()
+
+    if (
+        current.shape
+        !=
+        raw_target.shape
+    ):
+        raise ValueError(
+            "Current and target shapes do not match: "
+            f"current={tuple(current.shape)}, "
+            f"target={tuple(raw_target.shape)}"
+        )
 
     M = edge_mask(
         device
-    )
-
-    inside = (
-        ~M
+    ).to(
+        device=device
     )
 
     alpha_raw = torch.zeros(
@@ -675,7 +737,11 @@ def adjust_target_to_state_gpu(
         lr=0.03,
     )
 
-    current_sum = current.sum().detach()
+    current_sum = (
+        current
+        .sum()
+        .detach()
+    )
 
     for _ in range(
         iterations
@@ -798,5 +864,43 @@ def adjust_target_to_state_gpu(
             +
             0.015,
         )
+
+    print()
+    print(
+        "==============================================="
+    )
+    print(
+        "TARGET ADJUSTMENT"
+    )
+    print(
+        "==============================================="
+    )
+    print(
+        "device =",
+        adjusted.device,
+    )
+    print(
+        "dtype =",
+        adjusted.dtype,
+    )
+    print(
+        "alpha =",
+        float(alpha.item()),
+    )
+    print(
+        "beta =",
+        float(beta.item()),
+    )
+    print(
+        "current sum =",
+        float(current_sum.item()),
+    )
+    print(
+        "adjusted sum =",
+        float(adjusted.sum().item()),
+    )
+    print(
+        "==============================================="
+    )
 
     return adjusted

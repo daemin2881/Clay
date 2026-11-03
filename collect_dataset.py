@@ -142,6 +142,8 @@ os.environ["VS_SHOW_VIEWER"] = (
     else "0"
 )
 
+os.environ["VS_TIP_CORRECTION"] = "1"
+
 
 # ============================================================
 # IMPORTS
@@ -685,16 +687,18 @@ class DatasetWriter:
         rollout_id,
         rollout_step,
     ):
+        # 완료된 transition은 즉시 CPU에 저장해 둔다.
+        # CUDA가 중간에 죽어도 이미 완료된 샘플은 보존 가능하다.
         self.state_buffer.append(
-            state.detach().clone()
+            state.detach().cpu().clone()
         )
 
         self.action_buffer.append(
-            action.detach().clone()
+            action.detach().cpu().clone()
         )
 
         self.next_state_buffer.append(
-            next_state.detach().clone()
+            next_state.detach().cpu().clone()
         )
 
         self.rollout_id_buffer.append(

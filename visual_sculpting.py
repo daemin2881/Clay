@@ -27,6 +27,7 @@ from vs_representation import (
 from vs_planner import (
     greedy_plan_gpu,
     refine_plan_gpu,
+    predict_next_batch,
 )
 
 from vs_metrics import (
@@ -741,7 +742,45 @@ def main():
                     f"depth={float(action[4].item()) * 1000.0:.2f}mm"
                 )
 
+                # =================================================
+                # MODEL vs REALITY DIAGNOSTIC
+                # =================================================
+
+                # 실제 action 실행 직전의 현재 상태
+                before = get_current_state()
+
+                before_mae = torch.mean(
+                    torch.abs(
+                        before
+                        -
+                        target
+                    )
+                )
+
+                # 선택된 action 하나를 dynamics model로 예측
+                with torch.no_grad():
+
+                    predicted_batch = predict_next_batch(
+                        model,
+                        before,
+                        action.unsqueeze(0),
+                    )
+
+                    # batch 차원 유지: [1, C, H, W]
+                    predicted = predicted_batch[0:1]
+
+                    predicted_mae = torch.mean(
+                        torch.abs(
+                            predicted
+                            -
+                            target
+                        )
+                    )
+
+                # -------------------------------------------------
                 # 실제 Genesis 물리 실행
+                # -------------------------------------------------
+
                 sim.linear_push(
                     action,
                     action_index=action_count,
@@ -766,6 +805,93 @@ def main():
                     )
 
                 after = get_current_state()
+
+                # =================================================
+                # MODEL vs REALITY RESULT
+                # =================================================
+
+                actual_mae = torch.mean(
+                    torch.abs(
+                        after
+                        -
+                        target
+                    )
+                )
+
+                model_gap = torch.mean(
+                    torch.abs(
+                        predicted
+                        -
+                        after
+                    )
+                )
+
+                before_mm = (
+                    float(before_mae.item())
+                    *
+                    1000.0
+                )
+
+                predicted_mm = (
+                    float(predicted_mae.item())
+                    *
+                    1000.0
+                )
+
+                actual_mm = (
+                    float(actual_mae.item())
+                    *
+                    1000.0
+                )
+
+                model_gap_mm = (
+                    float(model_gap.item())
+                    *
+                    1000.0
+                )
+
+                predicted_change_mm = (
+                    predicted_mm
+                    -
+                    before_mm
+                )
+
+                actual_change_mm = (
+                    actual_mm
+                    -
+                    before_mm
+                )
+
+                print()
+                print(
+                    f"[MODEL CHECK {action_count:03d}] "
+                    f"before={before_mm:.4f}mm "
+                    f"predicted={predicted_mm:.4f}mm "
+                    f"actual={actual_mm:.4f}mm "
+                    f"model_gap={model_gap_mm:.4f}mm"
+                )
+
+                print(
+                    f"[MODEL DELTA {action_count:03d}] "
+                    f"predicted_change={predicted_change_mm:+.4f}mm "
+                    f"actual_change={actual_change_mm:+.4f}mm"
+                )
+
+                # 모델은 좋아진다고 했는데 실제로는 나빠진 경우
+                if (
+                    predicted_change_mm
+                    <
+                    0.0
+                    and
+                    actual_change_mm
+                    >
+                    0.0
+                ):
+                    print(
+                        f"[MODEL MISMATCH {action_count:03d}] "
+                        "predicted improvement, "
+                        "but real state became worse"
+                    )
 
                 total, l3d, lviz = total_loss(
                     after,

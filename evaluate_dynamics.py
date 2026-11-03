@@ -388,6 +388,12 @@ def main():
         default="medium",
     )
 
+    parser.add_argument(
+        "--dataset-dir",
+        dest="dataset_dir",
+        default=None,
+    )
+
 
     parser.add_argument(
         "--checkpoint",
@@ -506,13 +512,22 @@ def main():
     # DATASET
     # ========================================================
 
-    dataset = GPUDataset(
-
-        os.path.join(
+    dataset_path = (
+        args.dataset_dir
+        if args.dataset_dir is not None
+        else os.path.join(
             DATASET_DIR,
             args.material,
-        ),
+        )
+    )
 
+    print(
+        "dataset    =",
+        dataset_path,
+    )
+
+    dataset = GPUDataset(
+        dataset_path,
         device,
     )
 

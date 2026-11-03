@@ -55,6 +55,185 @@ def forward_model_amp(
 
 
 # ============================================================
+# LOCAL DEFORMATION LOSS
+#
+# 전체 512x512 배경보다 실제 push로 변형된 영역을
+# 더 중요하게 학습한다.
+#
+# gt_delta = next_state - current_state
+# ============================================================
+
+def local_deformation_loss(
+    pred,
+    gt,
+    current,
+    local_weight=5.0,
+    delta_scale=0.001,
+):
+
+    gt_delta = (
+        gt
+        -
+        current
+    )
+
+    pred_delta = (
+        pred
+        -
+        current
+    )
+
+    delta_mag = torch.abs(
+        gt_delta
+    )
+
+    # 1 mm 정도의 실제 변형부터 높은 중요도를 갖도록
+    # 0~1 사이의 연속적인 deformation mask 생성
+    importance = torch.clamp(
+        delta_mag
+        /
+        delta_scale,
+        min=0.0,
+        max=1.0,
+    )
+
+    # background = 1
+    # strongly deformed region = 1 + local_weight
+    weight = (
+        1.0
+        +
+        local_weight
+        *
+        importance
+    )
+
+    delta_error = (
+        pred_delta
+        -
+        gt_delta
+    )
+
+    weighted_delta_mse = torch.mean(
+        weight
+        *
+        delta_error.pow(2)
+    )
+
+    return weighted_delta_mse
+
+
+
+# ============================================================
+# LOCAL / PAPER REFERENCE SCALES
+#
+# Zero-deformation baseline을 기준으로
+# local loss와 paper loss의 자연스러운 크기를 계산한다.
+#
+# 이를 이용해서 local loss가 Lviz에 묻히지 않도록
+# 자동으로 scale을 맞춘다.
+# ============================================================
+
+@torch.no_grad()
+def compute_local_reference_scales(
+    dataset,
+    indices,
+    batch_size,
+    device,
+    w_3d,
+    w_viz,
+):
+
+    local_sum = torch.zeros(
+        (),
+        device=device,
+    )
+
+    paper_sum = torch.zeros(
+        (),
+        device=device,
+    )
+
+    sample_count = 0
+
+    for start in range(
+        0,
+        indices.shape[0],
+        batch_size,
+    ):
+
+        idx = indices[
+            start:
+            start + batch_size
+        ]
+
+        batch = dataset.get_batch(
+            idx
+        )
+
+        current = batch["state"]
+        gt = batch["next_state"]
+
+        n = idx.numel()
+
+        baseline = current
+
+        l3d = depth_mse(
+            baseline,
+            gt,
+        )
+
+        lviz = visual_mse(
+            baseline,
+            gt,
+        )
+
+        llocal = local_deformation_loss(
+            baseline,
+            gt,
+            current,
+            local_weight=5.0,
+            delta_scale=0.001,
+        )
+
+        paper_ref = (
+            w_3d * l3d
+            +
+            w_viz * lviz
+        )
+
+        local_sum += llocal * n
+        paper_sum += paper_ref * n
+
+        sample_count += n
+
+    if sample_count <= 0:
+        raise RuntimeError(
+            "Cannot compute local reference scales."
+        )
+
+    local_scale = (
+        local_sum
+        /
+        sample_count
+    ).clamp_min(
+        LOSS_EPS
+    )
+
+    paper_reference_scale = (
+        paper_sum
+        /
+        sample_count
+    ).clamp_min(
+        LOSS_EPS
+    )
+
+    return (
+        local_scale,
+        paper_reference_scale,
+    )
+
+
+# ============================================================
 # PAPER LOSS
 #
 # Paper-style objective:
@@ -1027,6 +1206,55 @@ def main():
         )
 
 
+    # ====================================================
+    # LOCAL LOSS SCALE READY
+    #
+    # 논문의 L3D + Lviz 크기를 유지하면서
+    # local deformation loss가 실제 영향을 갖도록
+    # dataset baseline을 기준으로 정규화한다.
+    # ====================================================
+
+    LOCAL_LAMBDA = 1.0
+
+    (
+        local_loss_scale,
+        paper_reference_scale,
+    ) = compute_local_reference_scales(
+        dataset,
+        train_indices,
+        BATCH_SIZE,
+        device,
+        args.w_3d,
+        args.w_viz,
+    )
+
+    print()
+    print(
+        "==============================================="
+    )
+    print(
+        "LOCAL DEFORMATION LOSS SCALE"
+    )
+    print(
+        "==============================================="
+    )
+    print(
+        "local baseline scale =",
+        float(local_loss_scale.item()),
+    )
+    print(
+        "paper baseline scale =",
+        float(paper_reference_scale.item()),
+    )
+    print(
+        "local lambda         =",
+        LOCAL_LAMBDA,
+    )
+    print(
+        "==============================================="
+    )
+    print()
+
     optimizer = torch.optim.Adam(
 
         model.parameters(),
@@ -1217,6 +1445,22 @@ def main():
 
 
             # ------------------------------------------------
+            # LOCAL DEFORMATION LOSS
+            #
+            # 실제로 변형된 tool 주변 영역을
+            # 전체 배경보다 더 중요하게 학습한다.
+            # ------------------------------------------------
+
+            llocal = local_deformation_loss(
+                pred,
+                gt,
+                batch["state"],
+                local_weight=5.0,
+                delta_scale=0.001,
+            )
+
+
+            # ------------------------------------------------
             # OBJECTIVE
             # ------------------------------------------------
 
@@ -1237,6 +1481,7 @@ def main():
 
                     w_viz=args.w_viz,
                 )
+
 
 
             else:
@@ -1360,6 +1605,37 @@ def main():
 
         val_batches = 0
 
+        # ----------------------------------------------------
+        # VALIDATION DIAGNOSTICS
+        # ----------------------------------------------------
+
+        val_sample_count = 0
+
+        val_mae_sum = torch.zeros(
+            (),
+            device=device,
+        )
+
+        val_zero_mae_sum = torch.zeros(
+            (),
+            device=device,
+        )
+
+        val_gt_delta_sum = torch.zeros(
+            (),
+            device=device,
+        )
+
+        val_pred_delta_sum = torch.zeros(
+            (),
+            device=device,
+        )
+
+        val_local_sum = torch.zeros(
+            (),
+            device=device,
+        )
+
 
         with torch.no_grad():
 
@@ -1424,6 +1700,94 @@ def main():
                 )
 
 
+                llocal = local_deformation_loss(
+                    pred,
+                    gt,
+                    batch["state"],
+                    local_weight=5.0,
+                    delta_scale=0.001,
+                )
+
+
+                batch_n = idx.numel()
+
+                current_state = batch[
+                    "state"
+                ]
+
+                gt_delta_diag = (
+                    gt
+                    -
+                    current_state
+                )
+
+                pred_delta_diag = (
+                    pred
+                    -
+                    current_state
+                )
+
+                batch_mae = torch.mean(
+                    torch.abs(
+                        pred
+                        -
+                        gt
+                    )
+                )
+
+                batch_zero_mae = torch.mean(
+                    torch.abs(
+                        current_state
+                        -
+                        gt
+                    )
+                )
+
+                batch_gt_delta_mag = torch.mean(
+                    torch.abs(
+                        gt_delta_diag
+                    )
+                )
+
+                batch_pred_delta_mag = torch.mean(
+                    torch.abs(
+                        pred_delta_diag
+                    )
+                )
+
+                val_mae_sum += (
+                    batch_mae
+                    *
+                    batch_n
+                )
+
+                val_zero_mae_sum += (
+                    batch_zero_mae
+                    *
+                    batch_n
+                )
+
+                val_gt_delta_sum += (
+                    batch_gt_delta_mag
+                    *
+                    batch_n
+                )
+
+                val_pred_delta_sum += (
+                    batch_pred_delta_mag
+                    *
+                    batch_n
+                )
+
+                val_local_sum += (
+                    llocal
+                    *
+                    batch_n
+                )
+
+                val_sample_count += batch_n
+
+
                 if args.loss_mode == "paper":
 
                     (
@@ -1441,6 +1805,7 @@ def main():
 
                         w_viz=args.w_viz,
                     )
+
 
 
                 else:
@@ -1490,6 +1855,100 @@ def main():
 
 
                 val_batches += 1
+
+
+        # ====================================================
+        # VALIDATION METRICS
+        #
+        # PAPER:
+        #   L3D, Lviz
+        #
+        # DIAGNOSTICS:
+        #   MAE / zero baseline / delta magnitude / ratio
+        #
+        # CUSTOM:
+        #   normalized local deformation loss
+        # ====================================================
+
+        if val_sample_count > 0:
+
+            val_mae_metric = (
+                val_mae_sum
+                /
+                val_sample_count
+            )
+
+            val_zero_mae_metric = (
+                val_zero_mae_sum
+                /
+                val_sample_count
+            )
+
+            val_gt_delta_metric = (
+                val_gt_delta_sum
+                /
+                val_sample_count
+            )
+
+            val_pred_delta_metric = (
+                val_pred_delta_sum
+                /
+                val_sample_count
+            )
+
+            val_local_metric = (
+                val_local_sum
+                /
+                val_sample_count
+            )
+
+            val_local_norm_metric = (
+                val_local_metric
+                /
+                local_loss_scale
+            )
+
+            mae_improvement_percent = (
+                (
+                    val_zero_mae_metric
+                    -
+                    val_mae_metric
+                )
+                /
+                val_zero_mae_metric.clamp_min(
+                    LOSS_EPS
+                )
+                *
+                100.0
+            )
+
+            pred_gt_delta_ratio = (
+                val_pred_delta_metric
+                /
+                val_gt_delta_metric.clamp_min(
+                    LOSS_EPS
+                )
+            )
+
+            print(
+                "    [VAL SCORES] "
+                f"MAE={float(val_mae_metric.item()) * 1000.0:.4f}mm "
+                f"zero={float(val_zero_mae_metric.item()) * 1000.0:.4f}mm "
+                f"improve={float(mae_improvement_percent.item()):+.2f}%"
+            )
+
+            print(
+                "    [DELTA SCORE] "
+                f"GT={float(val_gt_delta_metric.item()) * 1000.0:.4f}mm "
+                f"Pred={float(val_pred_delta_metric.item()) * 1000.0:.4f}mm "
+                f"Pred/GT={float(pred_gt_delta_ratio.item()):.4f}"
+            )
+
+            print(
+                "    [LOCAL SCORE] "
+                f"raw={float(val_local_metric.item()):.6e} "
+                f"normalized={float(val_local_norm_metric.item()):.4f}"
+            )
 
 
         # ====================================================
