@@ -30,6 +30,12 @@ from vs_config import (
     TOOL_TIP_RADIUS,
     TOOL_LENGTH,
     TOOL_MOUNT_GAP,
+    SPATULA_BLADE_LENGTH,
+    SPATULA_BLADE_WIDTH,
+    SPATULA_BLADE_THICKNESS,
+    SPATULA_EDGE_RADIUS,
+    SPATULA_HANDLE_RADIUS,
+    SPATULA_MESH_PATH,
     TOOL_LINK_NAME,
     TOOL_TIP_LINK_NAME,
     TOOL_JOINT_NAME,
@@ -222,18 +228,33 @@ def create_tool_urdf():
     )
 
 
-    shaft_length = max(
+    # ========================================================
+    # ONE-PIECE 3D-PRINTED LEAF SPATULA
+    #
+    # 기존:
+    #   cylinder shaft + sphere/box tip
+    #
+    # 변경:
+    #   하나의 연속된 spatula mesh
+    # ========================================================
 
-        TOOL_LENGTH
-        -
-        TOOL_TIP_RADIUS,
-
-        0.001,
+    spatula_mesh_path = Path(
+        SPATULA_MESH_PATH
     )
 
 
+    if not spatula_mesh_path.exists():
+
+        raise FileNotFoundError(
+
+            f"Leaf spatula STL not found: "
+            f"{spatula_mesh_path}"
+
+        )
+
+
     # ========================================================
-    # TOOL SHAFT
+    # MAIN TOOL LINK
     # ========================================================
 
     tool_link = ET.SubElement(
@@ -248,6 +269,16 @@ def create_tool_urdf():
         },
     )
 
+
+    # --------------------------------------------------------
+    # INERTIAL
+    #
+    # 기존:
+    #   shaft 0.08 kg
+    #   tip   0.02 kg
+    #
+    # 합계 0.10 kg 유지
+    # --------------------------------------------------------
 
     inertial = ET.SubElement(
 
@@ -265,15 +296,12 @@ def create_tool_urdf():
 
         {
             "xyz":
-            f"0 0 {shaft_length / 2.0}",
+            f"0 0 {TOOL_LENGTH / 2.0}",
 
             "rpy":
             "0 0 0",
         },
     )
-
-
-    shaft_mass = 0.08
 
 
     ET.SubElement(
@@ -284,52 +312,8 @@ def create_tool_urdf():
 
         {
             "value":
-            str(
-                shaft_mass
-            )
+            "0.10"
         },
-    )
-
-
-    ixx = (
-
-        shaft_mass
-
-        *
-
-        (
-            3.0
-            *
-            TOOL_SHAFT_RADIUS
-            *
-            TOOL_SHAFT_RADIUS
-
-            +
-
-            shaft_length
-            *
-            shaft_length
-        )
-
-        /
-
-        12.0
-    )
-
-
-    izz = (
-
-        0.5
-
-        *
-
-        shaft_mass
-
-        *
-
-        TOOL_SHAFT_RADIUS
-        *
-        TOOL_SHAFT_RADIUS
     )
 
 
@@ -340,15 +324,32 @@ def create_tool_urdf():
         "inertia",
 
         {
-            "ixx": str(ixx),
-            "iyy": str(ixx),
-            "izz": str(izz),
-            "ixy": "0",
-            "ixz": "0",
-            "iyz": "0",
+            "ixx":
+            "0.00005",
+
+            "iyy":
+            "0.00005",
+
+            "izz":
+            "0.00001",
+
+            "ixy":
+            "0",
+
+            "ixz":
+            "0",
+
+            "iyz":
+            "0",
         },
     )
 
+
+    # ========================================================
+    # VISUAL
+    #
+    # 전체 몸통 + leaf tip = 하나의 STL
+    # ========================================================
 
     visual = ET.SubElement(
 
@@ -366,7 +367,7 @@ def create_tool_urdf():
 
         {
             "xyz":
-            f"0 0 {shaft_length / 2.0}",
+            "0 0 0",
 
             "rpy":
             "0 0 0",
@@ -386,18 +387,16 @@ def create_tool_urdf():
 
         geometry,
 
-        "cylinder",
+        "mesh",
 
         {
-            "radius":
+            "filename":
             str(
-                TOOL_SHAFT_RADIUS
+                spatula_mesh_path.resolve()
             ),
 
-            "length":
-            str(
-                shaft_length
-            ),
+            "scale":
+            "1 1 1",
         },
     )
 
@@ -410,7 +409,7 @@ def create_tool_urdf():
 
         {
             "name":
-            "visual_sculpting_tool_white"
+            "leaf_spatula_3d_printed_white"
         },
     )
 
@@ -423,10 +422,16 @@ def create_tool_urdf():
 
         {
             "rgba":
-            "0.93 0.93 0.93 1.0"
+            "0.92 0.92 0.92 1.0"
         },
     )
 
+
+    # ========================================================
+    # COLLISION
+    #
+    # visual과 동일한 실제 spatula mesh 사용
+    # ========================================================
 
     collision = ET.SubElement(
 
@@ -444,7 +449,7 @@ def create_tool_urdf():
 
         {
             "xyz":
-            f"0 0 {shaft_length / 2.0}",
+            "0 0 0",
 
             "rpy":
             "0 0 0",
@@ -464,21 +469,23 @@ def create_tool_urdf():
 
         collision_geometry,
 
-        "cylinder",
+        "mesh",
 
         {
-            "radius":
+            "filename":
             str(
-                TOOL_SHAFT_RADIUS
+                spatula_mesh_path.resolve()
             ),
 
-            "length":
-            str(
-                shaft_length
-            ),
+            "scale":
+            "1 1 1",
         },
     )
 
+
+    # ========================================================
+    # TOOL -> ROBOT FIXED JOINT
+    # ========================================================
 
     tool_joint = ET.SubElement(
 
@@ -539,9 +546,13 @@ def create_tool_urdf():
 
 
     # ========================================================
-    # ROUNDED TOOL TIP
+    # TIP FRAME
     #
-    # TOOL_TIP_LINK frame은 실제 최하단 접촉점이다.
+    # geometry는 없음.
+    #
+    # 기존 IK / Z tracking / tip correction이
+    # visual_sculpting_tip을 쓰므로
+    # contact point frame만 기존 75 mm 위치에 유지한다.
     # ========================================================
 
     tip_link = ET.SubElement(
@@ -573,15 +584,12 @@ def create_tool_urdf():
 
         {
             "xyz":
-            f"0 0 {-TOOL_TIP_RADIUS}",
+            "0 0 0",
 
             "rpy":
             "0 0 0",
         },
     )
-
-
-    tip_mass = 0.02
 
 
     ET.SubElement(
@@ -592,26 +600,8 @@ def create_tool_urdf():
 
         {
             "value":
-            str(
-                tip_mass
-            )
+            "0.000001"
         },
-    )
-
-
-    sphere_inertia = (
-
-        0.4
-
-        *
-
-        tip_mass
-
-        *
-
-        TOOL_TIP_RADIUS
-        *
-        TOOL_TIP_RADIUS
     )
 
 
@@ -623,19 +613,13 @@ def create_tool_urdf():
 
         {
             "ixx":
-            str(
-                sphere_inertia
-            ),
+            "1e-12",
 
             "iyy":
-            str(
-                sphere_inertia
-            ),
+            "1e-12",
 
             "izz":
-            str(
-                sphere_inertia
-            ),
+            "1e-12",
 
             "ixy":
             "0",
@@ -645,126 +629,6 @@ def create_tool_urdf():
 
             "iyz":
             "0",
-        },
-    )
-
-
-    tip_visual = ET.SubElement(
-
-        tip_link,
-
-        "visual",
-    )
-
-
-    ET.SubElement(
-
-        tip_visual,
-
-        "origin",
-
-        {
-            "xyz":
-            f"0 0 {-TOOL_TIP_RADIUS}",
-
-            "rpy":
-            "0 0 0",
-        },
-    )
-
-
-    tip_geometry = ET.SubElement(
-
-        tip_visual,
-
-        "geometry",
-    )
-
-
-    ET.SubElement(
-
-        tip_geometry,
-
-        "sphere",
-
-        {
-            "radius":
-            str(
-                TOOL_TIP_RADIUS
-            )
-        },
-    )
-
-
-    tip_material = ET.SubElement(
-
-        tip_visual,
-
-        "material",
-
-        {
-            "name":
-            "visual_sculpting_tip_white"
-        },
-    )
-
-
-    ET.SubElement(
-
-        tip_material,
-
-        "color",
-
-        {
-            "rgba":
-            "0.96 0.96 0.96 1.0"
-        },
-    )
-
-
-    tip_collision = ET.SubElement(
-
-        tip_link,
-
-        "collision",
-    )
-
-
-    ET.SubElement(
-
-        tip_collision,
-
-        "origin",
-
-        {
-            "xyz":
-            f"0 0 {-TOOL_TIP_RADIUS}",
-
-            "rpy":
-            "0 0 0",
-        },
-    )
-
-
-    tip_collision_geometry = ET.SubElement(
-
-        tip_collision,
-
-        "geometry",
-    )
-
-
-    ET.SubElement(
-
-        tip_collision_geometry,
-
-        "sphere",
-
-        {
-            "radius":
-            str(
-                TOOL_TIP_RADIUS
-            )
         },
     )
 
@@ -819,12 +683,13 @@ def create_tool_urdf():
 
         {
             "xyz":
-            f"0 0 {TOOL_LENGTH}",
+            f"0.0129351 0 {TOOL_LENGTH}",
 
             "rpy":
             "0 0 0",
         },
     )
+
 
 
     tree.write(
@@ -844,7 +709,7 @@ def create_tool_urdf():
     )
 
     print(
-        "ROUNDED END EFFECTOR"
+        "ONE-PIECE LEAF SPATULA END EFFECTOR"
     )
 
     print(
@@ -857,18 +722,18 @@ def create_tool_urdf():
     )
 
     print(
-        "shaft diameter   :",
-        TOOL_SHAFT_RADIUS
-        *
-        2000.0,
+        "handle diameter  :",
+        SPATULA_HANDLE_RADIUS * 2000.0,
         "mm",
     )
 
     print(
-        "tip diameter     :",
-        TOOL_TIP_RADIUS
-        *
-        2000.0,
+        "blade L x W x T :",
+        SPATULA_BLADE_LENGTH * 1000.0,
+        "x",
+        SPATULA_BLADE_WIDTH * 1000.0,
+        "x",
+        SPATULA_BLADE_THICKNESS * 1000.0,
         "mm",
     )
 
@@ -2106,10 +1971,12 @@ class VisualSculptingSimulator:
         )
 
         print(
-            "tip diameter     :",
-            TOOL_TIP_RADIUS
-            *
-            2000,
+            "spatula blade    :",
+            SPATULA_BLADE_LENGTH * 1000.0,
+            "x",
+            SPATULA_BLADE_WIDTH * 1000.0,
+            "x",
+            SPATULA_BLADE_THICKNESS * 1000.0,
             "mm",
         )
 

@@ -110,9 +110,9 @@ CLAY_CENTER_X = 0.44
 CLAY_CENTER_Y = 0.0
 
 
-CLAY_SIZE_X = 0.36
+CLAY_SIZE_X = 0.26
 
-CLAY_SIZE_Y = 0.36
+CLAY_SIZE_Y = 0.26
 
 CLAY_SIZE_Z = 0.060
 
@@ -173,10 +173,10 @@ MATERIAL_PRESETS = {
     },
 
     "medium": {
-        "E": 2.0e4,
+        "E": 3.5e4,
         "nu": 0.30,
         "rho": 1200.0,
-        "yield_stress": 300.0,
+        "yield_stress": 450.0,
     },
 
     "hard": {
@@ -185,6 +185,20 @@ MATERIAL_PRESETS = {
         "rho": 1200.0,
         "yield_stress": 260.0,
     },
+
+    # ============================================
+    # AIR-DRY PAPER CLAY
+    # 작업 중인 촉촉한 지점토 모사 초기값
+    # 실제 측정값이 아닌 보정용 초기 추정치
+    # ============================================
+
+    "paper_clay": {
+        "E": 8.0e4,
+        "nu": 0.35,
+        "rho": 1300.0,
+        "yield_stress": 1500.0,
+    },
+
 }
 
 
@@ -230,15 +244,64 @@ CLAY_YIELD_STRESS = MATERIAL[
 # END EFFECTOR
 # ============================================================
 
-TOOL_RADIUS = 0.015
 
-TOOL_SHAFT_RADIUS = 0.014
+# ============================================================
+# ONE-PIECE 3D-PRINTED LEAF SPATULA
+# ============================================================
 
-TOOL_TIP_RADIUS = 0.015
-
-TOOL_LENGTH = 0.075
+# robot mount -> physical contact tip
+# 기존과 동일하게 75 mm 유지
+TOOL_LENGTH = 0.120
 
 TOOL_MOUNT_GAP = 0.0015
+
+
+# ------------------------------------------------------------
+# LEAF BLADE
+# ------------------------------------------------------------
+
+# blade 길이
+SPATULA_BLADE_LENGTH = 0.045      # 28 mm
+
+# blade 최대 폭
+SPATULA_BLADE_WIDTH = 0.032       # 18 mm
+
+# blade 두께
+SPATULA_BLADE_THICKNESS = 0.006   # 4 mm
+
+# 끝을 진짜 칼처럼 0 mm로 만들지 않음
+# rounded terminal
+SPATULA_EDGE_RADIUS = 0.002       # 2 mm
+
+# 일체형 손잡이 몸통
+SPATULA_HANDLE_RADIUS = 0.009     # diameter 12 mm
+
+
+SPATULA_MESH_PATH = os.path.join(
+    GENERATED_DIR,
+    "leaf_spatula_end_effector.stl",
+)
+
+
+# ------------------------------------------------------------
+# 기존 코드 호환용
+# ------------------------------------------------------------
+
+TOOL_RADIUS = 0.015
+
+TOOL_SHAFT_RADIUS = (
+    SPATULA_HANDLE_RADIUS
+)
+
+# 이제 sphere radius가 아님.
+# 기존 코드가 TOOL_TIP_RADIUS를 참조할 수도 있어서
+# blade thickness / 2를 호환 값으로 남겨둠.
+TOOL_TIP_RADIUS = (
+    SPATULA_BLADE_THICKNESS
+    /
+    2.0
+)
+
 
 
 TOOL_LINK_NAME = (
@@ -922,7 +985,7 @@ def print_config_summary():
 
 
     print(
-        "tip diameter =",
+        "blade thickness =",
         TOOL_TIP_RADIUS
         *
         2.0,
