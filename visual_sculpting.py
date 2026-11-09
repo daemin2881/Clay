@@ -24,6 +24,10 @@ from vs_representation import (
     adjust_target_to_state_gpu,
 )
 
+from vs_cem_gd import cem_gd_refine_plan
+
+from vs_icem_gd import icem_gd_refine_plan
+
 from vs_planner import (
     greedy_plan_gpu,
     refine_plan_gpu,
@@ -143,6 +147,24 @@ def main():
             "Use 0 for the initial low-memory test."
         ),
     )
+
+
+    parser.add_argument(
+        "--optimizer",
+        choices=["greedy", "adam", "cem-gd", "icem-gd"],
+        default="greedy",
+    )
+    parser.add_argument("--cem-samples", type=int, default=16)
+    parser.add_argument("--cem-elite", type=int, default=4)
+    parser.add_argument("--cem-iters", type=int, default=2)
+    parser.add_argument("--cem-gd-steps", type=int, default=2)
+
+
+    parser.add_argument("--icem-samples", type=int, default=16)
+    parser.add_argument("--icem-elite", type=int, default=4)
+    parser.add_argument("--icem-iters", type=int, default=3)
+    parser.add_argument("--icem-gd-steps", type=int, default=3)
+    parser.add_argument("--icem-rho", type=float, default=0.65)
 
     args = parser.parse_args()
 
@@ -658,31 +680,51 @@ def main():
             # refine_steps=0이면 greedy plan을 그대로 사용한다.
             # =================================================
 
-            if (
-                args.refine_steps
-                >
-                0
-                and
-                args.refine_actions
-                >
-                0
-            ):
 
-                print()
-                print(
-                    "[PLANNER] differentiable refinement"
+
+            if args.optimizer == "icem-gd":
+
+                print("[PLANNER] Greedy + iCEM-GD (Adam)")
+
+                refined_plan = icem_gd_refine_plan(
+                    model,
+                    current,
+                    target,
+                    initial_plan,
+                    w3d=args.w3d,
+                    wviz=args.wviz,
+                    recent_actions=recent_actions,
+                    refine_actions=args.refine_actions,
+                    samples=args.icem_samples,
+                    elite=args.icem_elite,
+                    iterations=args.icem_iters,
+                    gd_steps=args.icem_gd_steps,
+                    rho=args.icem_rho,
                 )
-                print(
-                    "[PLANNER] actions =",
-                    min(
-                        args.refine_actions,
-                        initial_plan.shape[0],
-                    ),
+
+            elif args.optimizer == "cem-gd":
+                from vs_cem_gd import cem_gd_refine_plan
+
+                refined_plan = cem_gd_refine_plan(
+                    model,
+                    current,
+                    target,
+                    initial_plan,
+                    w3d=args.w3d,
+                    wviz=args.wviz,
+                    recent_actions=recent_actions,
+                    refine_actions=args.refine_actions,
+                    samples=args.cem_samples,
+                    elite=args.cem_elite,
+                    iterations=args.cem_iters,
+                    gd_steps=args.cem_gd_steps,
                 )
-                print(
-                    "[PLANNER] steps =",
-                    args.refine_steps,
-                )
+
+            elif (
+                args.optimizer == "adam"
+                and args.refine_steps > 0
+                and args.refine_actions > 0
+            ):
 
                 refined_plan = refine_plan_gpu(
                     model,
@@ -692,21 +734,11 @@ def main():
                     w3d=args.w3d,
                     wviz=args.wviz,
                     recent_actions=recent_actions,
-                    max_refine_actions=(
-                        args.refine_actions
-                    ),
-                    refine_steps=(
-                        args.refine_steps
-                    ),
+                    max_refine_actions=args.refine_actions,
+                    refine_steps=args.refine_steps,
                 )
 
             else:
-
-                print()
-                print(
-                    "[PLANNER] refinement skipped"
-                )
-
                 refined_plan = initial_plan
 
             refined_plan = refined_plan.to(
