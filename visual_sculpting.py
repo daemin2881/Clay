@@ -2,8 +2,11 @@ import argparse
 import csv
 import gc
 import os
+from pathlib import Path
 
 import torch
+
+from vs_history import ActionHistory, load_heightmap, border_background
 
 from vs_config import (
     RESULT_DIR,
@@ -144,7 +147,41 @@ def main():
         ),
     )
 
+    parser.add_argument("--target-heightmap", help="원본 H_base .npy, 512×512, 단위 m")
+    parser.add_argument("--target-scale", type=float, default=1.0,
+                        help="고양이 XY 크기 배율. 0.85이면 가로·세로 85%%, 높이 배율 1.0")
+    parser.add_argument("--roi-mask", help="관측/평가용 귀 마스크. 초기 조형 행동은 제한하지 않음")
+    parser.add_argument("--history-dir", help="매 행동의 전체 물리 상태를 기록할 새 폴더")
+    parser.add_argument("--output-dir", help="시각화와 기존 CSV를 저장할 새 폴더")
+    parser.add_argument("--mpc-execute", type=int, default=MPC_EXECUTE)
+    parser.add_argument("--force-full-actions", action="store_true")
+    parser.add_argument("--stop-after-actions", type=int, help="계획 예산은 유지하고 지정 행동 수에서 기록 종료")
+
     args = parser.parse_args()
+    if not 0.1 <= args.target_scale <= 1.0:
+        raise ValueError("--target-scale은 0.1 이상 1.0 이하여야 합니다.")
+    if args.target_scale != 1.0 and not args.target_heightmap:
+        raise ValueError("--target-scale은 --target-heightmap과 함께 사용하세요.")
+    if args.mpc_execute <= 0:
+        raise ValueError("--mpc-execute는 양수여야 합니다.")
+    if args.stop_after_actions is not None and args.stop_after_actions <= 0:
+        raise ValueError("--stop-after-actions는 양수여야 합니다.")
+    for name in ("history_dir", "output_dir"):
+        value = getattr(args, name)
+        if value is not None:
+            p = Path(value).expanduser().resolve()
+            if p.exists() and (not p.is_dir() or any(p.iterdir())):
+                raise FileExistsError(f"새 폴더를 지정하세요: {p}")
+            setattr(args, name, str(p))
+    if args.history_dir and args.output_dir and Path(args.history_dir) == Path(args.output_dir):
+        raise ValueError("--history-dir와 --output-dir는 서로 달라야 합니다.")
+    for name in ("target_heightmap", "roi_mask"):
+        value = getattr(args, name)
+        if value is not None:
+            p = Path(value).expanduser().resolve()
+            if not p.is_file():
+                raise FileNotFoundError(p)
+            setattr(args, name, str(p))
 
     if args.max_actions <= 0:
         raise ValueError(
@@ -290,7 +327,7 @@ def main():
     )
 
     experiment_dir = ensure_dir(
-        os.path.join(
+        args.output_dir or os.path.join(
             RESULT_DIR,
             experiment_name,
         )
@@ -313,6 +350,7 @@ def main():
     checkpoint = torch.load(
         args.checkpoint,
         map_location="cpu",
+        weights_only=False,
     )
 
     model = Param2Deform()
@@ -359,10 +397,15 @@ def main():
     # RAW TARGET
     # ========================================================
 
-    raw_target = make_target(
-        args.target,
-        device,
-    )
+    if args.target_heightmap:
+        raw_target = load_heightmap(args.target_heightmap, device, dtype,
+                                    spatial_scale=args.target_scale)
+        print(f"[TARGET SCALE] 가로·세로={args.target_scale:.0%}, 높이 배율=1.0, 중심 고정")
+    else:
+        raw_target = make_target(
+            args.target,
+            device,
+        )
 
     raw_target = torch.as_tensor(
         raw_target,
@@ -431,12 +474,13 @@ def main():
     # ADJUST TARGET
     # ========================================================
 
-    adjusted = adjust_target_to_state_gpu(
+    adjusted, target_transform = adjust_target_to_state_gpu(
         current[
             0,
             0
         ],
         raw_target,
+        return_transform=True,
     )
 
     adjusted = adjusted.to(
@@ -454,6 +498,22 @@ def main():
         state_dir,
         "adjusted_target",
     )
+
+    target_transform.update(
+        spatial_scale=args.target_scale,
+        spatial_background_m=border_background(raw_target),
+        spatial_center_pixel=[255.5, 255.5],
+        spatial_interpolation="bilinear", spatial_align_corners=True,
+    )
+    history = None
+    if args.history_dir:
+        history = ActionHistory(
+            sim, args.history_dir, target=target, raw_target=raw_target,
+            roi_path=args.roi_mask, target_path=args.target_heightmap,
+            checkpoint_path=args.checkpoint, target_transform=target_transform,
+            run_args=vars(args),
+        )
+    del target_transform
 
     # target adjustment 임시 텐서 정리
     del raw_target
@@ -535,6 +595,7 @@ def main():
             action_count
             <
             args.max_actions
+            and (args.stop_after_actions is None or action_count < args.stop_after_actions)
         ):
 
             current = get_current_state()
@@ -577,6 +638,7 @@ def main():
                 mean_value
                 <
                 TARGET_MEAN_ERROR
+                and not args.force_full_actions
             ):
 
                 print(
@@ -715,7 +777,7 @@ def main():
             )
 
             execute_n = min(
-                MPC_EXECUTE,
+                args.mpc_execute,
                 refined_plan.shape[0],
                 remaining_actions,
             )
@@ -781,10 +843,19 @@ def main():
                 # 실제 Genesis 물리 실행
                 # -------------------------------------------------
 
-                sim.linear_push(
-                    action,
-                    action_index=action_count,
-                )
+                if history is None:
+                    sim.linear_push(action, action_index=action_count)
+                else:
+                    history.record_push(
+                        action, action_index=action_count,
+                        before=before, predicted=predicted,
+                        planner_context=dict(
+                            plan=refined_plan, plan_index=i,
+                            recent_actions=recent_actions,
+                            planned_horizon=planning_horizon,
+                            action_budget=args.max_actions,
+                        ),
+                    )
 
                 action_count += 1
 
@@ -975,6 +1046,7 @@ def main():
                     action_count
                     >=
                     args.max_actions
+                    or (args.stop_after_actions is not None and action_count >= args.stop_after_actions)
                 ):
 
                     break

@@ -55,6 +55,51 @@ from vs_dataset import (
 )
 
 
+# 실험용: 플래너가 고르는 길이의 하한만 올린다 (미설정이면 기존과 동일).
+# 모델 입력 정규화(vs_dataset)와 시뮬레이터 범위(vs_config)는 바꾸지 않는다.
+import os as _os
+_PLAN_LENGTH_MIN_OVERRIDE = _os.environ.get("VS_PLAN_LENGTH_MIN")
+if _PLAN_LENGTH_MIN_OVERRIDE:
+    LENGTH_MIN = max(float(_PLAN_LENGTH_MIN_OVERRIDE), LENGTH_MIN)
+    print(f"[PLANNER] 길이 하한 override: {LENGTH_MIN * 1000.0:.1f} mm")
+
+
+# 실험용: 부조 영역 가중 손실. VS_PLAN_BG_WEIGHT=1.0(기본)이면 기존 손실과 완전히 같다.
+# 값이 작을수록 배경(부조 밖) 오차를 덜 반영한다. 0이면 부조 영역만 본다.
+_PLAN_BG_WEIGHT = float(_os.environ.get("VS_PLAN_BG_WEIGHT", "1.0"))
+_PLAN_RELIEF_DILATE_PX = int(_os.environ.get("VS_PLAN_RELIEF_DILATE", "8"))
+if _PLAN_BG_WEIGHT != 1.0:
+    print(f"[PLANNER] 부조 가중 손실: 배경 가중치={_PLAN_BG_WEIGHT}, 부조 영역 확장={_PLAN_RELIEF_DILATE_PX}px")
+
+
+def _relief_weight(target):
+    """target(B,1,H,W)에서 부조 영역을 1, 배경을 _PLAN_BG_WEIGHT로 하는 가중치."""
+    import torch.nn.functional as F
+    b = target.detach()
+    edge = torch.cat([b[..., 0, :], b[..., -1, :], b[..., :, 0], b[..., :, -1]], dim=-1)
+    background = edge.median(dim=-1, keepdim=True).values[..., None]
+    relief = (b > background + 5e-4).to(b.dtype)
+    r = _PLAN_RELIEF_DILATE_PX
+    if r > 0:
+        relief = F.max_pool2d(relief, kernel_size=2 * r + 1, stride=1, padding=r)
+    return _PLAN_BG_WEIGHT + (1.0 - _PLAN_BG_WEIGHT) * relief
+
+
+def loss_components(predicted, target):
+    if _PLAN_BG_WEIGHT == 1.0:
+        return _loss_components_unweighted(predicted, target)
+    predicted = ensure_bchw(predicted)
+    target = ensure_bchw(target)
+    if target.shape[0] == 1:
+        target = target.expand(predicted.shape[0], -1, -1, -1)
+    w = _relief_weight(target)
+    l3d = torch.mean(w * (predicted - target) ** 2, dim=(1, 2, 3))
+    pgx, pgy = spatial_gradient(predicted)
+    tgx, tgy = spatial_gradient(target)
+    lviz = torch.mean(w * ((pgx - tgx) ** 2 + (pgy - tgy) ** 2), dim=(1, 2, 3))
+    return l3d, lviz
+
+
 # ============================================================
 # UTILITY
 # ============================================================
@@ -1611,7 +1656,7 @@ def predict_next(
 # returns per-state losses.
 # ============================================================
 
-def loss_components(
+def _loss_components_unweighted(
     predicted,
     target,
 ):

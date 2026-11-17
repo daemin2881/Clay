@@ -1,0 +1,318 @@
+<title>A 홈 국소 수정 실험</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 레이아웃: 한 칸 읽기 열. 결론 → 표 → 그림 → 근거 순. 색은 목표와 같은 파랑 하나, 의미색(좋음/나쁨)은 표 셀에만 쓴다. */
+:root {
+  --bg: #fbfbfa; --fg: #15181c; --muted: #5a626b; --rule: #dfe2e6; --panel: #f2f4f6;
+  --accent: #2a78d6; --good: #0b7a3b; --bad: #c4322f; --good-bg: #e6f4ea; --bad-bg: #fbeaea;
+  --font: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #14171a; --fg: #e8eaed; --muted: #9aa3ad; --rule: #2c3136; --panel: #1c2024;
+  --accent: #6da7ec; --good: #62c58a; --bad: #f08a87; --good-bg: #17301f; --bad-bg: #3a1d1d; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #14171a; --fg: #e8eaed; --muted: #9aa3ad; --rule: #2c3136; --panel: #1c2024;
+  --accent: #6da7ec; --good: #62c58a; --bad: #f08a87; --good-bg: #17301f; --bad-bg: #3a1d1d; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.7; margin: 0;
+  padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; min-width: 0; }
+h1 { font-size: 26px; line-height: 1.3; margin: 0 0 6px; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0 0 10px; text-wrap: balance; }
+h3 { font-size: 15px; margin: 18px 0 6px; }
+p { margin: 0 0 10px; max-width: 68ch; }
+.meta { color: var(--muted); font-size: 13px; }
+section { min-width: 0; }
+ul { margin: 0 0 10px; padding-left: 20px; max-width: 72ch; } li { margin-bottom: 5px; }
+.lead { background: var(--panel); border-left: 3px solid var(--accent); padding: 14px 18px; border-radius: 4px; }
+.lead p:last-child { margin-bottom: 0; }
+.scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+thead th { background: var(--panel); font-weight: 500; text-align: right; position: sticky; top: 0; }
+tbody th { text-align: left; font-weight: 500; white-space: normal; min-width: 180px; }
+td.note { text-align: left; white-space: normal; min-width: 220px; color: var(--muted); }
+tr:last-child th, tr:last-child td { border-bottom: 0; }
+td.good { color: var(--good); background: var(--good-bg); } td.bad { color: var(--bad); background: var(--bad-bg); }
+figure { margin: 0; } figure img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 6px; display: block; }
+figcaption { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--panel); padding: 1px 5px; border-radius: 3px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.card { border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+.card b { display: block; margin-bottom: 4px; }
+.tag-done, .tag-sub, .tag-no { font-family: var(--mono); font-size: 11.5px; padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
+.tag-done { background: var(--good-bg); color: var(--good); } .tag-sub { background: var(--panel); color: var(--fg); } .tag-no { background: var(--bad-bg); color: var(--bad); }
+</style>
+
+<main>
+<header>
+  <h1>A 홈 국소 수정 실험</h1>
+  <p class="meta">대상: 190회 조형이 끝난 글자 A, 요청 "A의 가운데 홈을 더 파서 디테일을 추가하고 싶다" · 목표: 홈 영역 평균 약 2.35mm(최대 3mm) 더 깊게 · 읽는 사람: 지도교수</p>
+</header>
+
+<section class="lead">
+  <h2>결론</h2>
+  <p>설계안의 단계(마스크 3종, 목표 생성, 과거 행동 beam 탐색, 롤백 반사실, 자코비안 보정, Broyden 반복)를 구현해서 이 케이스에서 끝까지 실행했습니다. 실행한 모든 보정은 새 이력으로 기록되고, 저장 상태 복원 오차는 0.0000mm입니다.</p>
+  <p><b>목표 height map과 눈으로 비교하면, 아무것도 안 한 것보다 나아진 방식은 없었습니다.</b> 홈을 파는 데 성공한 방식(설계의 현재 상태 보정)은 홈 둘레가 크게 바뀌어서 외형 오차가 크게 늘었습니다. 재계획(Visual Sculpting)은 홈을 거의 못 팠습니다. 과거 행동을 롤백하는 방식은 재생을 믿을 수 있는 범위에서는 후보가 1개뿐이었고 오히려 나빠졌습니다.</p>
+  <p><b>결과를 읽는 방법</b>: 끊어진 다리 영역의 개선(#186을 바꾸면 영역 오차 4.343 → 3.269mm, 약 25% 감소)은 <b>탐색 과정에서 찾은 부분 개선 사례</b>입니다. 처음 정한 자동 합격 기준(주변까지 평가)은 통과하지 못했고, 영역 안의 변화와 이미지를 보면서 이 후보를 골랐습니다. 같은 수정에서 가운데 홈은 악화됐고 전체 오차는 거의 그대로였습니다(2.860 → 2.872mm). 따라서 "전체 A가 개선됐다"거나 "자동 시스템이 기존 합격 기준으로 찾아냈다"는 뜻이 아닙니다.</p>
+  <p>평균 수치가 나쁜 것은 팁과 점토 사이의 물리 오차(데이터 수집과 모델 학습 단계부터 있던 것)에서 오는 부분이 커서, 이 보고서는 숫자와 함께 목표와 눈으로 닮았는지를 음영 이미지로 보여 드립니다. 과거 기록을 넓게 찾아 반사실로 고친 재생(아래 2절)에서도 눈에 띄는 개선은 아직 찾지 못했습니다.</p>
+  <p>원인 가설은 도구 직경(30mm)이 홈(약 25×30mm)과 비슷해서, 눌러 파면 점토가 둘레로 밀려 솟는다는 것입니다. 이 가설은 직접 검증하지 않았습니다.</p>
+</section>
+
+<section>
+  <h2>0. 목표와 마스크가 만들어진 과정</h2>
+  <p>마스크는 190행동이 끝난 A의 높이맵에서 만들었습니다(이력의 마지막 상태와 0.0mm 차이). 요청 문장이 VLM을 거쳐 영역으로 바뀌고, SAM2가 그 영역의 경계를 잡습니다.</p>
+  <ul>
+    <li><b>입력</b>: 높이맵을 색으로 칠한 이미지입니다. 회색 음영 이미지를 먼저 줬을 때는 SAM2가 홈 위치를 못 잡았고(안쪽 점 0/3 적중), 색 이미지에서는 잡았습니다.</li>
+    <li><b>VLM</b>: 요청 "A의 가운데 사이들의 홈을 더 파서 디테일을 추가하고 싶다"를 박스 1개, 안쪽 점 3개, 바깥쪽 점 4개로 바꿉니다. 이번에는 API 키가 없어 제가 직접 쓴 대역입니다. VLM은 깊이(mm)를 정하지 않습니다.</li>
+    <li><b>SAM2</b>: 후보 마스크 3개를 냅니다. 안쪽 점을 모두 포함하고 바깥쪽 점을 포함하지 않는 후보 중에서, SAM 점수에서 박스 밖으로 번진 정도를 감점한 값이 가장 큰 것을 고릅니다. SAM 점수만 보면 #1(0.895)이 높지만 이 규칙에서는 #0(0.863)이 뽑혔습니다.</li>
+    <li><b>정리</b>: 박스로 자르고, 닫기 연산과 구멍 채우기를 하고, 안쪽 점이 속한 덩어리만 남겨 861화소(약 425mm²)가 됩니다.</li>
+    <li><b>목표 H*</b>: 이 마스크 안쪽만 최대 3mm 낮추고 가장자리는 부드럽게 잇습니다. 마스크 밖은 현재 A와 똑같습니다. 3mm는 사람이 정한 값입니다.</li>
+  </ul>
+  <figure><img alt="SAM2 마스크 생성 과정" src="{{FIG_SAM}}"><figcaption>(1) 입력 → (2) VLM 프롬프트 → (3) SAM2 후보 3개 → (4) 정리 → (5) 방법이 쓰는 마스크 3종(홈, 경계 띠, 보존할 A의 획).</figcaption></figure>
+</section>
+
+<section>
+  <h2>0-1. 원래 목표 A와 지금 A는 어디가 다른가</h2>
+  <p>요청의 기준은 원래 A 목표 height map입니다. 190회 뒤의 A를 목표와 비교하면 말씀하신 문제가 숫자로 그대로 나옵니다. 값은 각 지도의 배경 높이를 뺀 relief입니다(현재 배경이 목표보다 약 3.1mm 낮아서 배경 기준으로 맞췄습니다).</p>
+  <div class="scroll"><table>
+    <thead><tr><th>영역</th><th>현재 relief(mm)</th><th>목표 relief(mm)</th><th>해야 할 일</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">왼쪽 튀어나온 부분</th><td>+6.6</td><td>-0.8</td><td class="note">약 7mm 깎기</td></tr>
+      <tr><th scope="row">끊어진 왼쪽 다리</th><td>+0.2</td><td>+4.5</td><td class="note">약 4mm 채우기</td></tr>
+      <tr><th scope="row">가운데 홈</th><td>+0.6</td><td>+1.6</td><td class="note">홈 안의 깊은 구멍(차이 최대 -12.7mm)은 메우고, 튀어난 곳(+4.6mm)은 깎아서 매끈한 삼각형으로</td></tr>
+    </tbody>
+  </table></div>
+  <figure><img alt="원래 목표 A, 현재 A, 둘의 차이" src="{{FIG_DEV}}"><figcaption>왼쪽: 원래 목표 A. 가운데: 190회 뒤의 A. 오른쪽: 현재 − 목표(빨강 = 너무 높음, 파랑 = 너무 낮음)와 세 영역. 지금 A는 이 세 곳 말고도 전체적으로 목표와 다르고 표면이 울퉁불퉁합니다.</figcaption></figure>
+  <p class="meta">수치(L3D, Lviz 등)의 오차가 큰 부분은 팁과 점토 사이의 물리 오차에서 옵니다. 데이터 수집과 모델 학습 단계부터 있던 것이고, 이번 실험으로 줄이지 못했습니다. 그래서 이 보고서는 숫자보다 눈으로 목표와 닮았는지(음영 이미지)를 함께 보여 드립니다.</p>
+</section>
+
+<section>
+  <h2>1. 눈에 보이는 오차: 아무것도 안 한 것(1.00)과 비교</h2>
+  <p>평균 MAE는 홈이 지도의 0.33%라서 홈을 안 파도 0에 가깝습니다(아무것도 안 하면 전체 MAE 0.0077mm). 그래서 프로젝트 원래 손실인 형태 L3D(높이 차이의 제곱 평균)와 외형 Lviz(기울기 차이의 제곱 평균)를, 홈과 주변 45화소 창에서 잽니다. 테두리는 홈 가장자리 띠에서 기울기 크기가 목표와 같은지 봅니다. 1.00 미만이면 목표에 가까워진 것입니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>방식</th><th>형태 L3D</th><th>외형 Lviz</th><th>테두리</th><th>창 높이오차 RMS(mm)</th><th>창 기울기오차(목표 대비)</th><th>홈이 깊어진 평균(mm)</th><th>창 밖 최대 변화(mm)</th><th>전체 지도 Lviz</th><th>설명</th></tr></thead>
+    <tbody>{{ARM_ROWS}}</tbody>
+  </table></div>
+  <p class="meta">초록 = 1.00 미만, 빨강 = 1.00 초과. 목표는 홈이 평균 2.35mm 깊어지는 것입니다. 각 팔은 같은 시작 상태, 같은 H*, 같은 손실로 채점했습니다.</p>
+  <figure><img alt="목표와 각 결과의 음영 이미지" src="{{FIG_SHADED}}"><figcaption>같은 광원과 같은 확대. 빨간 점선이 깊게 파야 하는 영역입니다. 재계획은 수정 전과 거의 같고, 현재 상태 보정은 홈 둘레가 눈에 띄게 바뀝니다.</figcaption></figure>
+  <figure><img alt="높이 변화 지도와 지표 막대" src="{{FIG_METRICS}}"><figcaption>위: 수정 전 대비 높이 변화(파랑 = 더 깊어짐, 빨강 = 솟음). 아래: 지표 막대. 시작값(회색)보다 짧을수록 좋고, 깊어진 정도만 목표 2.35mm에 가까울수록 좋습니다.</figcaption></figure>
+</section>
+
+<section>
+  <h2>2. 과거 행동을 찾아 롤백하는 부분</h2>
+  <p>190개 행동마다 점수를 매깁니다. 점수는 실제 변형의 방향이 목표와 같은지(cos), 변형이 홈 안에 집중됐는지, 도구가 지난 영역이 홈과 겹치는지(IoU)를 더하고, 보존할 획을 건드린 정도와 모델이 그 행동에서 틀린 정도를 뺍니다. 5행동 묶음 38개에서 상위 3개를 고르고, 그 안의 개별 행동을 순위 매겨 상위 3개를 뽑습니다. 이어서 모델로 길이와 깊이를 바꿔 본 효과를 스크리닝하고, 1개를 Genesis에서 실제로 롤백 재생합니다. 재생은 선택한 행동 직전 상태로 돌아가 그 행동 하나만 바꾸고, 이후 기록된 행동은 그대로 이어서 실행합니다.</p>
+  <div class="grid2">
+    <div class="card"><b>홈을 만든 행동은 있다</b>전체 190행동 중 접촉영역이 홈과 겹친 행동(IoU 0.1 초과)은 16개입니다. 대체로 13행동 간격으로 홈 근처를 눌렀습니다. 기여가 가장 큰 쪽은 #2, #29입니다.</div>
+    <div class="card"><b>그러나 재생을 믿을 수 있는 범위 밖</b>이 이력의 검증 기록에서 20행동 재생은 통과했고 40행동 재생은 22번째에서 실패했습니다. #29는 162행동 재생이고 기록과 맞지 않았습니다(최대 3.26mm, 143화소). 이 재생은 신뢰 기준 미달입니다.</div>
+    <div class="card"><b>믿을 수 있는 범위(최근 20행동)</b>홈을 건드린 행동은 #183 하나입니다. 재생 8행동은 기준을 통과했지만, 길이·깊이를 바꾼 결과는 오히려 나빴습니다. 이 경우 방법은 "유효한 C*가 없다"고 판정하고 abstain합니다.</div>
+    <div class="card"><b>모델의 반사실 순위는 믿기 어렵다</b>모델 스크리닝은 #29에서 +1.21, #183에서 +0.05의 이득을 예측했지만 Genesis 실측은 각각 -1.86, -0.29였습니다. 점수와 모델 이득의 순위상관도 +0.36(전체), -0.03(최근 20행동)이었습니다.</div>
+  </div>
+  <h3>길이·깊이를 바꾼 반사실 재생 결과 ({{SWEEP_N}}건)</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>바꾼 행동</th><th>재생 행동 수</th><th>control 기록 일치</th><th>바꾼 값</th><th>Genesis q</th><th>형태 L3D</th><th>외형 Lviz</th><th>테두리</th><th>홈 깊어짐(mm)</th><th>판정</th></tr></thead>
+    <tbody>{{SWEEP_ROWS}}</tbody>
+  </table></div>
+  <h3>후보를 넓힌 반사실 탐색: 세 영역 ({{CF_N}}건)</h3>
+  <p>처음의 beam은 "도구 경로가 영역과 겹치는가"를 중심으로 봐서, 도구가 근처를 지나며 점토를 밀어 영역을 바꾼 행동을 놓쳤습니다. 그래서 후보를 <b>"그 행동이 영역 안 높이를 실제로 얼마나 바꿨는가"</b>로 다시 골랐습니다(#186은 평균 2.79mm, #179, #166, #163은 1~1.8mm). 각 후보의 길이·깊이를 얕게, 짧게, 건너뛰기 등으로 바꿔 Genesis로 끝까지 재생하고, 영역이 목표 height map 쪽으로 가는지를 우선 봤습니다. 둘레 변화는 막지 않고 표에 함께 적었습니다. 영역 RMS는 목표와의 높이 차이이고 원래 1.29mm입니다. "목표 쪽 이동"은 영역 안에서 목표 방향으로 얼마나 갔는지입니다(+1.0이면 목표 도달).</p>
+  <div class="scroll"><table>
+    <thead><tr><th>바꾼 행동</th><th>재생 행동 수</th><th>재생 신뢰</th><th>변형</th><th>영역 RMS(mm)</th><th>목표 쪽 이동</th><th>형태 L3D</th><th>외형 Lviz</th><th>테두리</th><th>창 밖 최대(mm)</th><th>판정</th></tr></thead>
+    <tbody>{{CF_ROWS}}</tbody>
+  </table></div>
+  <figure><img alt="과거를 고쳐 재생한 결과의 음영 비교" src="{{FIG_CF}}"><figcaption>과거 행동을 바꿔 재생한 뒤의 점토(같은 광원, 같은 확대). 점선이 끊어진 다리 영역입니다. 왼쪽 두 칸이 수정 전과 목표입니다.</figcaption></figure>
+  <p class="meta">q = L(control) − L(반사실). 양수여야 개선입니다. 비율은 H_T + (H_cf − H_control)을 기준으로 계산했습니다(재생 드리프트 상쇄). control 기준: 0.5mm 초과 화소 5개 이하, 99.9분위수 0.2mm 이하. 재생 잡음(replicate)은 시간 때문에 측정하지 못해서 SNR 판정은 하지 못했고, 위 표는 q의 부호와 control 일치로만 판정했습니다.</p>
+</section>
+
+<section>
+  <h2>2-1. 최종 비교: 190회 A와 과거를 고친 A</h2>
+  <p><b>적용한 것</b>: 끊어진 다리 영역을 가장 크게 바꾼 과거 행동 #186을 "거의 안 누르는 행동"으로 바꾸고, 그 직전 상태로 복원한 뒤 #186부터 #190까지 Genesis에서 다시 실행했습니다(뷰어 창에서 실시간으로 볼 수 있습니다). 이 결과가 "과거에 이 행동을 이렇게 했더라면 지금 점토가 이랬을 것"입니다. 새로 현재에서 누른 행동이 아니라 <b>수정된 과거의 재생</b>입니다. 현재 상태에서 새 행동으로 같은 효과를 내려는 보상은 시뮬레이터 검증에서 후보가 모두 나빠져 확정하지 않았습니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>영역</th><th>원래 목표까지 필요한 변화(mm)</th><th>과거를 고친 A의 변화(mm)</th><th>목표까지의 거리 중 간 비율</th></tr></thead>
+    <tbody>{{FINAL_ROWS}}</tbody>
+  </table></div>
+  <figure><img alt="190회 A와 과거를 고친 A의 비교" src="{{FIG_FINAL}}"><figcaption>위: 원래 목표, 190회 뒤의 A, 과거 #186을 고친 A, 둘의 차이. 아래: 끊어진 다리 영역 확대. 점선이 고치려는 영역입니다.</figcaption></figure>
+  <h3>적용 전/후 height map 이미지 (과거 #186을 고친 재생)</h3>
+  <div class="grid2">
+    <figure><img alt="적용 전 height map" src="{{FIG_BA_BEFORE}}"><figcaption>전: 190회 뒤의 A (점선 = 끊어진 다리 영역)</figcaption></figure>
+    <figure><img alt="적용 후 height map" src="{{FIG_BA_AFTER}}"><figcaption>후: #186을 고쳐 재생한 A</figcaption></figure>
+    <figure><img alt="후 − 전 높이 차이" src="{{FIG_BA_DIFF}}"><figcaption>후 − 전 (파랑 = 후가 더 높음)</figcaption></figure>
+  </div>
+  <figure><img alt="시뮬레이터 입자 단면" src="{{FIG_PART}}"><figcaption>시뮬레이터(Genesis MPM)의 입자 상태를 영역 중심을 지나는 단면으로 본 것. 회색 = 전, 빨강 = 후.</figcaption></figure>
+  <p class="meta">음영 이미지에서 올록볼록한 공 모양은 제가 만든 것이 아닙니다. 높이맵은 시뮬레이터의 MPM 입자(약 36,900개, 지름 6mm)를 프로젝트 코드(<code>particles_to_height_gpu</code>)가 입자마다 둥근 봉우리로 바꿔 만든 것이라 입자 하나하나가 공처럼 보입니다. Genesis 자체 렌더링이 아니고, 음영(광원)만 제가 입혔습니다.</p>
+  <ul>
+    <li>끊어진 다리 영역은 약 2.6mm 채워져서 영역 안의 이상한 구멍이 메워집니다. 필요한 변화의 일부입니다.</li>
+    <li>왼쪽 튀어나온 부분은 거의 변하지 않았고, 가운데 홈은 오히려 약간 낮아졌습니다. 이 수정 하나로는 세 문제 모두가 해결되지 않습니다.</li>
+    <li>대가로 그 행동이 만들었던 주변이 바뀝니다. 전체 지도에서 {{N_CHANGED}}화소가 0.5mm 넘게 달라졌고 최대 변화는 {{MAX_CHANGED}}mm입니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>2-2. 이 반사실을 어떤 방법으로, 무엇을 보고 골랐는가</h2>
+  <ol>
+    <li><b>후보 행동 찾기 (규칙 계산, 학습 모델 없음)</b>: 190행동 각각에 대해 도구 접촉영역(반지름 15mm 캡슐)이 끊어진 다리 영역 근처(10화소 이내)를 지났는지 보고, 그 행동이 기록상 영역 안 높이를 평균 몇 mm 바꿨는지 계산했습니다. 재생이 믿을 수 있는 범위(약 40행동 이내)에서 큰 순서입니다: #186(2.79mm, 재생 5행동), #156(1.84mm, 35), #163(1.79mm, 28), #149(1.34mm, 42), #179(1.14mm, 12), #166(0.87mm, 25). 앞선 점수·beam(<code>attribution.py</code>)은 #186을 뽑지 못했습니다(상위는 #182, #175, #181이고 s_t ≤ 0.34, 모델 q ≈ 0).</li>
+    <li><b>수정 방법 5가지</b>: #186의 깊이 ×0.3, 깊이 ×0.6, 길이 ×0.6, 길이·깊이 ×1.3, 건너뛰기(길이 5mm, 깊이 1mm로 교체).</li>
+    <li><b>반사실 계산 (Genesis 물리)</b>: #185 직후 상태로 복원 → 수정한 #186 → 기록된 #187~#190을 그대로 재생합니다. 같은 엔진에서 원래 행동을 그대로 재생한 control도 구해서 기록과 비교했고, 0.5mm를 넘는 화소가 1개(최대 0.548mm), 99.9분위수 0.127mm로 통과했습니다.</li>
+    <li><b>고르는 기준</b>: 영역 안에서 목표 쪽으로 간 정도 t = Σ(H_cf−H_control)·(H*−H_control) / Σ(H*−H_control)² (마스크 안 합). 건너뛰기 +0.67, 깊이 ×0.3 +0.43, 깊이 ×0.6 +0.22, 길이 ×0.6 +0.03, 길이·깊이 ×1.3 -0.27이어서 건너뛰기를 골랐습니다.</li>
+    <li><b>자동 기준과의 차이 (중요)</b>: 처음에 정한 자동 기준(눈에 보이는 점수 S가 1.00 미만이고 창 RMS가 줄어야 함)은 5가지 모두 통과하지 못했습니다. 건너뛰기는 S ×6.49, 창 RMS 1.29 → 2.52mm였습니다. 건너뛰기를 고른 것은 영역 안 이동이 가장 크고 눈으로 영역 안의 이상한 구멍이 메워져 보였기 때문이며, 선택 기준을 영역 중심으로 바꾼 뒤의 선택입니다. 자동 기준을 통과해서 고른 것이 아닙니다.</li>
+  </ol>
+  <h3>선택한 반사실의 오차 수치 (190회 A와 비교)</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>지표</th><th>190회 A</th><th>과거 #186을 고쳐 재생한 A</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">MAE, 전체 지도 (원래 목표 대비)</th><td>2.860mm</td><td>2.872mm</td><td class="note">거의 변화 없음</td></tr>
+      <tr><th scope="row">MAE, A 글자 영역</th><td>3.302mm</td><td>3.278mm</td><td class="note">거의 변화 없음</td></tr>
+      <tr><th scope="row">MAE, 끊어진 다리 영역</th><td>4.343mm</td><td class="good">3.269mm</td><td class="note">25% 줄어듦 (개선)</td></tr>
+      <tr><th scope="row">MAE, 왼쪽 튀어나온 부분</th><td>7.408mm</td><td class="bad">7.540mm</td><td class="note">변화 없음 (약간 악화)</td></tr>
+      <tr><th scope="row">MAE, 가운데 홈</th><td>2.665mm</td><td class="bad">2.950mm</td><td class="note">악화</td></tr>
+      <tr><th scope="row">형태 L3D, 다리 영역 주변 창</th><td>1.00</td><td class="bad">5.19</td><td class="note">영역 둘레 변화가 커서 악화로 계산됨</td></tr>
+      <tr><th scope="row">외형 Lviz, 다리 영역 주변 창</th><td>1.00</td><td class="bad">7.38</td><td class="note">창 기울기 오차 40% → 109%</td></tr>
+      <tr><th scope="row">테두리, 다리 영역 주변 창</th><td>1.00</td><td class="bad">4.84</td><td class="note"></td></tr>
+      <tr><th scope="row">세 영역 합친 목표 대비 L3D / Lviz (창)</th><td>1.00 / 1.00</td><td class="bad">1.59 / 2.58</td><td class="note">세 문제 중 하나만 고쳐서 전체로는 악화</td></tr>
+    </tbody>
+  </table></div>
+  <p class="meta">수정이 바꾼 양: 전체 평균 0.065mm, 0.5mm 넘게 바뀐 화소 5,036개, 최대 15.2mm. 값은 <code>chosen_cf_numbers.py</code>로 다시 계산할 수 있습니다. 눈으로 볼 때는 다리 영역의 이상한 구멍이 메워지지만, 수치로는 영역 둘레의 변화 때문에 악화로 계산됩니다.</p>
+  <p><b>현재 상태에서 새 행동으로 같은 효과를 내는 보상</b>: Param2Deform으로 후보를 만들고(beam + 자코비안 + Adam), 상위 4개를 Genesis에서 실제로 시도했을 때 눈에 보이는 점수가 2.80~3.06(시작 1.00)이어서 확정하지 않았습니다.</p>
+</section>
+
+<section>
+  <h2>2-3. 80번째 점토 상태에서: 과거 행동을 하나씩 바꾼 것과 한꺼번에 바꾼 것</h2>
+  <p>190회 A는 단일 행동을 바꾸는 방식으로 세 문제가 풀리지 않았습니다. 점토를 초기화하지 않으면 190회는 80회의 두 배 이상이라 재생이 길고 흔들리기 쉽습니다. 그래서 80번째 상태를 "현재"로 보고, 같은 조건에서 비교했습니다. 80번째 상태에서도 세 영역(튀어나온 부분, 끊어진 다리, 가운데 홈)은 원래 목표와 각각 -3.06, +2.16, +3.14mm 다릅니다. 후보는 영역 근처를 지나며 영역 높이를 바꾼 행동 #71, #62, #59, #75이고, 재생은 6~22행동입니다. 모두 "건너뛰기"로 바꿨습니다.</p>
+  <ul>
+    <li><b>하나씩</b>: 행동 하나를 바꾸고 80번째까지 재생합니다. 4번 따로 실행합니다.</li>
+    <li><b>하나씩 효과의 합</b>: 위 네 효과(C = H_cf − H_control)를 단순히 더한 가정값입니다. 행동 사이의 영향이 없다고 가정한 값입니다.</li>
+    <li><b>한꺼번에</b>: 네 행동을 동시에 바꾸고 80번째까지 한 번에 재생합니다.</li>
+  </ul>
+  <div class="scroll"><table>
+    <thead><tr><th>방법</th><th>영역 안 목표 쪽 이동</th><th>MAE 전체(mm)</th><th>MAE A 글자 영역</th><th>MAE 튀어나온/다리/홈</th><th>형태 L3D</th><th>외형 Lviz</th><th>테두리</th><th>0.5mm 넘게 바뀐 화소</th><th>최대 변화(mm)</th></tr></thead>
+    <tbody>{{S80_ROWS}}</tbody>
+  </table></div>
+  <p class="meta">MAE는 원래 A 목표(배경 높이 정렬) 대비입니다. L3D, Lviz, 테두리는 80번째 상태 = 1.00인 비율(세 영역 합친 창)입니다. 영역 안 목표 쪽 이동은 1.0이면 목표 도달입니다.</p>
+  <p><b>상호작용(하나씩의 합과 한꺼번에의 차이)</b>: {{S80_INTER}}</p>
+  <figure><img alt="80번째 상태에서 하나씩과 한꺼번에 비교" src="{{FIG_S80}}"><figcaption>같은 광원, 같은 확대. 점선은 튀어나온 부분, 끊어진 다리, 가운데 홈입니다.</figcaption></figure>
+</section>
+
+<section>
+  <h2>2-4. "누르지 않았으면 좋았다"를 현재 상태에서 복원하는 행동</h2>
+  <p>#186을 누르지 않았을 때의 모습(수정된 과거)이 더 낫다면, 현재 A에서 그 모습으로 되돌리는 행동을 찾아야 합니다. #186이 점토를 밀어낸 경로의 <b>역방향 푸시</b>(끝점에서 시작점 쪽)를 후보로 만들고, 깊이 ×0.5·×1, 길이 ×1·×2, 옆으로 ±4mm의 12가지를 Genesis에서 실제로 실행해 본 뒤 매번 되돌렸습니다. 영역 안에서 수정된 과거 쪽으로 간 정도가 가장 크고 영역 밖 변화가 6mm 이하인 후보를 골라 시뮬레이터에서 확정했습니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>후보</th><th>수정된 과거 쪽 이동</th><th>영역 MAE(수정된 과거 대비, mm)</th><th>영역 MAE(원래 목표 대비, mm)</th><th>영역 밖 최대 변화(mm)</th></tr></thead>
+    <tbody>{{UNDO_ROWS}}</tbody>
+  </table></div>
+  <p>{{UNDO_SEL}}</p>
+  <figure><img alt="복원 행동 전후 비교" src="{{FIG_UNDO}}"><figcaption>190회 A, 수정된 과거(목표 상태), 현재에서 복원 행동을 실행한 결과.</figcaption></figure>
+</section>
+
+<section>
+  <h2>2-5. 80번째 상태: 요청 사항별(홈, 다리, 받침) 반사실 탐색과 현재 보상</h2>
+  <p>요청: A 사이의 홈을 정확하게 파고, 왼쪽 다리를 목표처럼 얇고 뚜렷하게, 오른쪽 다리 끝과 다리 끝 받침 막대를 목표대로 살립니다. VLM 키가 없어서 영역은 SAM2가 아니라 <b>원래 목표 A의 모양에서 규칙으로</b> 만들었습니다(홈 = 각 행에서 A의 양 끝 사이의 빈 공간, 다리 = 2개 이상 덩어리가 있는 행의 가장 왼쪽/오른쪽 덩어리, 받침 = 맨 아래 14% 행의 왼쪽/오른쪽 덩어리).</p>
+  <div class="scroll"><table>
+    <thead><tr><th>영역</th><th>80번째 MAE(원래 목표 대비, mm)</th><th>필요한 평균 변화(mm)</th></tr></thead>
+    <tbody>{{S80B_BEST}}</tbody>
+  </table></div>
+  <p><b>후보 선택</b>: 영역 근처(10화소)를 도구가 지나간 56~80번째 행동 중, 기록된 전/후 height map 차이(ΔH)가 영역 안 높이를 크게 바꾼 순서입니다(beam이 아니라 영역 안 변화량 정렬). 후보 하나를 "건너뛴" 과거를 그 행동 직전 상태로 복원해 80번째까지 Genesis에서 재생합니다(이후 행동은 기록 그대로). 표는 각 수정 후 영역 MAE(괄호는 80번째 대비 변화)입니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>과거 수정</th><th>A 사이의 홈</th><th>왼쪽 다리</th><th>오른쪽 다리</th><th>왼쪽 받침</th><th>오른쪽 받침</th></tr></thead>
+    <tbody>{{S80B_MATRIX}}</tbody>
+  </table></div>
+  <p class="meta">초록 = 영역 MAE가 0.05mm 넘게 줄어듦, 빨강 = 0.05mm 넘게 늘어남. 오른쪽 다리는 #73을 건너뛰면 -0.31mm 줄고 다른 영역은 거의 변하지 않습니다(가장 국소적인 사례).</p>
+  <figure><img alt="80번째 오른쪽 다리 전후" src="{{FIG_S80_RL}}"><figcaption>오른쪽 다리: 과거 #73을 건너뛴 재생의 전/후 height map(위)과 음영(아래).</figcaption></figure>
+  <figure><img alt="80번째 홈 전후" src="{{FIG_S80_GR}}"><figcaption>A 사이의 홈: 과거 #76을 건너뛴 재생의 전/후 height map과 음영.</figcaption></figure>
+  <h3>현재 상태에서의 국소 보상 (과거 수정의 효과를 현재에서 실제 행동으로 만들기)</h3>
+  <p>과거 수정이 만든 영역 안 변화 C* = H_cf − H_control을 현재(80번째) 상태에 더한 것을 보상 목표 T로 둡니다. 영역 주변에서 후보 행동(위치, 방향, 길이, 깊이)을 여러 개 뽑아 <b>시뮬레이터에서 실제로 시도하고 되돌린 뒤</b>, T에 가장 가까워지는 후보만 확정합니다(영역 밖 변화 6mm 초과는 제외). 확정한 행동마다 height map PNG를 저장합니다.</p>
+  {{S80B_COMP}}
+</section>
+
+<section>
+  <h2>3. 현재 상태 보정이 실패한 이유</h2>
+  <ul>
+    <li><b>모델 예측이 실제와 맞지 않았습니다.</b> 20번의 실행(Broyden 켬/끔 각 10회)에서 모델은 매번 이득을 예측했지만, 실제로는 {{PRED_BAD}}/{{PRED_N}}회가 L을 키웠습니다. 예측 이득과 실제 이득의 상관은 {{PRED_CORR}}입니다. 첫 행동은 +0.44 예측, 실제 -0.89였습니다.</li>
+    <li><b>Broyden 갱신은 거의 도움이 되지 않았습니다.</b> 편집영역의 모델 오차가 보정 후에도 예를 들어 0.768mm에서 0.763mm로 거의 그대로였습니다.</li>
+    <li><b>실제 물리로 직접 시험해도 개선하는 행동이 없었습니다.</b> 길이 5mm 도장 {{PROBE_N}}개와 무작위 행동 8개(중단되어 8개까지만)를 Genesis에서 실행하고 매번 롤백해 봤습니다. 홈 창의 L3D와 Lviz가 모두 1.00 미만인 행동은 하나도 없었습니다. 가장 덜 나쁜 것은 L3D ×{{PROBE_BEST_L3D}}, Lviz ×{{PROBE_BEST_LVIZ}}에 홈이 +{{PROBE_BEST_DEEP}}mm 깊어지는 정도였습니다. 점토 구석에 같은 행동을 했을 때 홈 창은 변하지 않아서(L3D ×1.00, Lviz ×1.00~1.03), 이 측정에는 드리프트가 없었습니다.</li>
+    <li><b>부수 효과가 큽니다.</b> 확인한 6개 행동(서로 다른 3개 행동 × 실행 2회) 모두에서 같은 지점(행 297~299, 열 248~250)이 가장 크게 솟았고 최대 12mm였습니다. 홈 근처의 점토가 둘레의 낮은 곳으로 밀리는 것으로 보이지만 확인하지는 못했습니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4. 설계 단계별 구현 상태</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>설계 단계</th><th>상태</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">VLM(Gemini)이 요청을 해석하고 SAM2 프롬프트 생성</th><td><span class="tag-sub">대역</span></td><td class="note">API 키가 없어서 프롬프트 JSON을 직접 작성했습니다. SAM2는 실제로 실행했습니다.</td></tr>
+      <tr><th scope="row">M_edit / M_boundary / M_preserve, H*_edit, 손실 L</th><td><span class="tag-done">구현</span></td><td class="note">깊이 δ는 사람이 정한 3mm로 고정했습니다. 손실 가중치는 설계에 값이 없습니다. 이 보고서는 가중치에 의존하지 않도록 형태 L3D, 외형 Lviz, 테두리를 따로 보고합니다. 깊이 오차만 보면(외형 가중치 0) 설계의 현재 상태 보정이 아무것도 안 한 것보다 가깝지만(홈 깊이오차 2.35 → 1.4mm), 외형이 크게 나빠집니다.</td></tr>
+      <tr><th scope="row">과거 행동 점수와 계층 beam</th><td><span class="tag-done">구현</span></td><td class="note">전체 190행동과 최근 20행동 두 범위로 실행했습니다.</td></tr>
+      <tr><th scope="row">모델 기반 반사실 스크리닝</th><td><span class="tag-done">구현</span></td><td class="note">Genesis 실측과 순위가 맞지 않았습니다.</td></tr>
+      <tr><th scope="row">Genesis 롤백 반사실과 C* 추출</th><td><span class="tag-done">구현</span></td><td class="note">신뢰 기준(재생 일치)과 개선 여부로 판정합니다. 유효한 C*는 나오지 않았습니다.</td></tr>
+      <tr><th scope="row">현재 상태 beam + 자코비안 + Adam</th><td><span class="tag-done">구현</span></td><td class="note">자코비안은 설계의 "현재 구현"대로 길이와 깊이 열만 사용합니다. 예측 이득이 임계값 아래면 실행하지 않는 종료도 있습니다.</td></tr>
+      <tr><th scope="row">행동 1개 실행 → 재관측 → Broyden, 최대 10회</th><td><span class="tag-sub">변경</span></td><td class="note">설계 식은 상태가 매번 바뀌어 ΔH_real이 모호해서, 같은 갱신 형태를 모델 오차에 적용했습니다.</td></tr>
+      <tr><th scope="row">실행 전 시뮬레이터 시도 → 롤백 → 개선되는 것만 확정</th><td><span class="tag-sub">추가</span></td><td class="note">설계에는 없는 단계입니다. 모델 예측이 실제와 맞지 않아서 넣었습니다.</td></tr>
+      <tr><th scope="row">여러 영역과 편집 종류(정리, 연결, 깊게/크게)</th><td><span class="tag-sub">추가</span></td><td class="note">대역 프롬프트로 목표 생성까지 시험했습니다. 전체 실행 결과는 진행 중입니다.</td></tr>
+      <tr><th scope="row">Counterfactual Shapley, PlasticineLab, CPDeform, AdaptiGraph, Task-Level ILC</th><td><span class="tag-no">미구현</span></td><td class="note">설계에서도 논문용 분석 또는 후속 확장으로 둔 항목입니다.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>5. 한계</h2>
+  <ul>
+    <li>케이스 1개(글자 A의 홈), 편집량 3mm 1개, 이력 1개입니다. 일반화할 수 없습니다.</li>
+    <li>VLM 단계는 대역이라 "자연어 → 영역" 변환의 오차는 평가하지 못했습니다.</li>
+    <li>도구 크기가 원인이라는 설명은 가설입니다. 더 작은 도구로는 시험하지 못했고, 그러려면 데이터 수집과 모델 재학습이 필요합니다.</li>
+    <li>반사실 재생의 잡음(replicate)을 측정하지 못했습니다.</li>
+    <li>설계 문서의 참고 문헌(Rollback, COCOA, CPDeform 등)은 제가 직접 확인하지 않았습니다. 인용하기 전에 확인이 필요합니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>6. 다음 단계 제안</h2>
+  <ul>
+    <li>도구보다 큰 영역을 편집하는 요청(예: 홈 주변을 포함한 넓은 영역)으로 같은 파이프라인을 시험해서, 방법 자체가 문제인지 홈의 크기가 문제인지 구분합니다.</li>
+    <li>모델 오차가 큰 홈 근처의 실행 데이터(이번에 모은 롤백 시험 약 40개와 보정 20행동)를 on-policy 데이터로 보태 모델을 미세조정합니다.</li>
+    <li>재생이 믿을 수 있는 최근 약 20행동 안에서 편집이 이루어지도록, 편집 요청 직전에 해당 영역을 만드는 행동을 일부러 남겨 두는 설정을 시험합니다.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>7. 프로그램: 프롬프트에서 국소 수정까지 (<code>live_edit.py</code>)</h2>
+  <p>조형이 끝난 상태에서 요청 한 문장을 받아 아래 순서로 이어서 실행합니다. 각 단계의 계산 과정은 터미널에 출력되고, <code>--viewer</code>를 주면 Genesis 뷰어에서 점토가 눌리는 것을, <code>--watch</code>를 주면 목표·현재·차이 높이맵 창이 반복마다 갱신되는 것을 볼 수 있습니다.</p>
+  <ul>
+    <li><b>요청 해석</b>: 높이맵을 색 이미지로 그려 VLM에 전달하면 영역별로 편집 종류(정리, 연결, 깊게/크게), 박스, 점이 나옵니다. API 키가 없으면 미리 써 둔 대역을 쓰고 화면에 대역이라고 표시합니다. Gemini 호출 경로는 키가 없어서 시험하지 못했습니다.</li>
+    <li><b>영역별 목표</b>: SAM2가 영역마다 마스크를 만들고, 편집 종류별 규칙으로 목표를 계산합니다. 정리는 주변 높이까지 깎고, 연결은 양쪽 획 높이까지 채우고, 깊게/크게는 영역을 넓혀 3mm 낮춥니다. 높이(mm)는 VLM이 정하지 않습니다.</li>
+    <li><b>영역별 과거 기록</b>: 영역마다 행동 점수와 계층 beam으로 후보를 찾고, Genesis 롤백으로 검증합니다. 신뢰 기준을 통과하고 개선되는 C*만 합쳐서 씁니다. 없으면 그 영역은 abstain입니다.</li>
+    <li><b>현재 보정</b>: 자코비안 + Adam + Broyden으로 후보를 만들고, <b>실행 전에 상위 4개를 시뮬레이터에서 실제로 시도한 뒤 되돌려서</b> 눈에 보이는 오차(형태, 외형, 테두리, 전체 외형의 평균 비율)가 줄어드는 것만 확정합니다. 줄어드는 후보가 없으면 실행하지 않고 종료합니다.</li>
+  </ul>
+  <p><b>검증 후 확정의 효과</b>: 홈 케이스에서 모델이 고른 후보 4개를 실제로 시도하니 눈에 보이는 오차 점수가 시작값(1.00) 대비 6.6, 8.0, 9.1, 16.8배로 모두 나빴습니다. 프로그램은 아무것도 확정하지 않고 종료했습니다. 모델 예측만 믿고 실행한 앞의 결과(10행동 후 외형 오차 약 36배)와 달리, 점토가 망가지지 않습니다. 대신 이 홈은 이 도구로 개선할 방법을 찾지 못했다는 뜻입니다.</p>
+  <p><b>다영역 시험(대역 프롬프트로 한 번에 요청)</b>: "왼쪽 튀어나온 부분 정리, 끊어진 부분 연결, 가운데 홈은 더 선명하고 크게"를 넣었습니다. 영역 좌표는 VLM 대역으로 제가 눈대중으로 잡았습니다. 세 영역의 마스크와 편집 종류별 목표(정리 4.2mm, 연결 6.0mm, 깊게·크게 3.0mm)는 정상적으로 만들어졌습니다. 과거 기록은 최근 20행동 안에서 찾았습니다.</p>
+  <ul>
+    <li>왼쪽 튀어나온 부분: 최근 20행동 중 이 영역을 건드린 행동이 없어 abstain.</li>
+    <li>끊어진 다리: 후보 #182(재생 9행동, 신뢰 통과). Genesis 실측 q=+0.012로 처음 양수가 나와 C*가 만들어졌지만, 효과는 영역 평균 0.014~0.027mm로 눈에 보이지 않습니다.</li>
+    <li>현재 보정: 실행 전에 상위 4개 후보를 시뮬레이터에서 시도하니 눈에 보이는 오차 점수가 1.087, 1.159, 1.018, 1.017로 모두 시작값(1.00)보다 나빠서, 아무것도 확정하지 않고 종료했습니다.</li>
+  </ul>
+  <p class="meta">원래 목표 A를 그대로 쓰는 편집 종류(match_target)의 전체 실행은 시간이 부족해 끝내지 못했습니다. 목표 생성까지는 확인했습니다.</p>
+</section>
+
+<section>
+  <h2>9. 단계별 방법과 입출력</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>단계</th><th>방법 / 알고리즘</th><th>입력</th><th>출력</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">1. 요청 해석</th><td class="note">VLM(Gemini). 지금은 미리 써 둔 대역</td><td class="note">요청 문장, 현재 높이맵을 색으로 칠한 이미지</td><td class="note">영역별 편집 종류, 박스, 안쪽·바깥쪽 점</td></tr>
+      <tr><th scope="row">2. 영역 윤곽</th><td class="note">SAM 2</td><td class="note">이미지, 박스·점</td><td class="note">영역 마스크(512×512)</td></tr>
+      <tr><th scope="row">3. 목표 생성</th><td class="note">편집 종류별 규칙(정리, 연결, 깊게/크게), 또는 원래 목표를 배경 높이에 정렬(match_target). 마스크 팽창·침식으로 경계 띠와 보존 영역</td><td class="note">현재 높이맵 H_T, 마스크, (원래 목표)</td><td class="note">목표 H*, M_edit, M_boundary, M_preserve</td></tr>
+      <tr><th scope="row">4. 과거 후보 찾기</th><td class="note">행동 점수(방향 일치, 홈 안 집중도, 접촉 겹침, 보존 침범, 모델 오차) + 5행동 묶음 beam. 보강: 영역 안 높이를 실제로 바꾼 행동 순위</td><td class="note">190행동 기록(전/후 높이맵, 행동), H*, 마스크</td><td class="note">후보 행동 순위</td></tr>
+      <tr><th scope="row">5. 모델 스크리닝</th><td class="note">Param2Deform(학습 모델)</td><td class="note">후보 행동과 그 직전 높이맵</td><td class="note">길이·깊이를 바꿨을 때의 예상 효과</td></tr>
+      <tr><th scope="row">6. 반사실 재생</th><td class="note">Genesis 롤백: 후보 행동 직전 상태로 복원 → 그 행동만 수정 → 이후 기록 행동을 그대로 재생</td><td class="note">저장된 상태 스냅샷, 수정한 행동, 이후 행동</td><td class="note">수정된 과거를 재생한 최종 높이맵과 점토 상태, 재생 신뢰 판정</td></tr>
+      <tr><th scope="row">7. 반사실 효과 C*</th><td class="note">뺄셈 C* = H_cf − H_control. 영역 안으로 제한</td><td class="note">H_cf, H_control, 마스크</td><td class="note">영역 보상 목표</td></tr>
+      <tr><th scope="row">8. 현재 상태 보상</th><td class="note">beam(x, y, θ) + 자코비안 최소제곱 + Adam(길이, 깊이) + Broyden</td><td class="note">현재 상태, H*, C*</td><td class="note">후보 행동 (x, y, θ, 길이, 깊이)</td></tr>
+      <tr><th scope="row">9. 검증 후 확정</th><td class="note">Genesis에서 실제로 시도 → 롤백 → 눈에 보이는 점수 비교</td><td class="note">후보 행동, 현재 상태</td><td class="note">확정 또는 종료(no-op)</td></tr>
+      <tr><th scope="row">10. 실행과 기록</th><td class="note">Genesis 실행, ActionHistory 기록</td><td class="note">확정한 행동</td><td class="note">새 높이맵, 전체 상태 스냅샷(다시 재생 가능)</td></tr>
+      <tr><th scope="row">11. 평가</th><td class="note">L3D, Lviz, 테두리 비율, 영역별 RMS, 음영 이미지</td><td class="note">전/후 높이맵, H*</td><td class="note">지표 표와 비교 그림</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>8. 재현</h2>
+  <p>저장소 <code>visual_sculpting_baseline</code>, 결과는 <code>results/case_A/design/</code>. 주요 파일: <code>edit_spec.py</code>(마스크·목표·손실), <code>attribution.py</code>(beam), <code>rollback_cf.py</code>(롤백 재생), <code>local_correct.py</code>(자코비안 보정), <code>probe_actions.py</code>(실행 후 롤백 시험), <code>arms_table.py</code>(눈에 보이는 지표), <code>view_state.py</code>(Genesis 뷰어로 상태 보기), <code>live_edit.py</code>(프롬프트에서 수정까지 한 번에), <code>region_edit.py</code>(편집 종류별 목표), <code>watch_map.py</code>(높이맵 실시간 창). 물리 서명에 포함된 <code>vs_simulator.py</code>, <code>vs_representation.py</code>, <code>vs_history.py</code>는 수정하지 않았습니다.</p>
+</section>
+</main>

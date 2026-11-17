@@ -1458,6 +1458,16 @@ def particles_to_height_gpu(
             )
 
 
+            # HEIGHTMAP_CONTINUOUS_SUPPORT_V1
+            # 한 픽셀 폭의 바깥 고리에서 기여도를 연속적으로 0까지 줄인다.
+            # 경계에서 후보 높이가 갑자기 사라지는 관측 점프를 막는다.
+            rim_fraction = (
+                (support_radius - torch.sqrt(d2_i.clamp_min(0.0)))
+                / pixel_size
+            ).clamp(0.0, 1.0)
+            rim_weight = rim_fraction.square() * (3.0 - 2.0 * rim_fraction)
+            candidate_height = candidate_height + radial_drop * torch.log(rim_weight)
+
             flat_idx = (
 
                 iy_i
@@ -2208,6 +2218,7 @@ class VisualSculptingSimulator:
 
 
         self.last_q = self.initial_q.clone()
+        self._history_position_command = self.initial_q.detach().clone()
 
 
         self.robot.set_dofs_position(
@@ -2265,6 +2276,13 @@ class VisualSculptingSimulator:
     # ========================================================
     # SIMULATION STEP
     # ========================================================
+
+    def control_arm_position(self, *, position, dofs_idx_local):
+        # 원래의 위치 제어 명령을 그대로 전달하며 마지막 명령만 추적한다.
+        self._history_position_command = position.detach().clone()
+        return self.robot.control_dofs_position(
+            position=position, dofs_idx_local=dofs_idx_local,
+        )
 
     def step(
         self,
@@ -2476,7 +2494,7 @@ class VisualSculptingSimulator:
             )
 
 
-            self.robot.control_dofs_position(
+            self.control_arm_position(
 
                 position=q,
 
@@ -2575,7 +2593,7 @@ class VisualSculptingSimulator:
         for control_index in (range(
             max_steps
         ) if TIP_CORRECTION_ENABLED else range(0)):
-            self.robot.control_dofs_position(
+            self.control_arm_position(
                 position=command_q,
                 dofs_idx_local=self.dof_idx,
             )
@@ -2679,6 +2697,17 @@ class VisualSculptingSimulator:
         error_mm = (
             actual - target
         ) * 1000.0
+
+        # 보정 OFF일 때도 실제 잔차를 측정한다. 추가 제어/물리 step은 없다.
+        final_error_m = float(torch.linalg.vector_norm(actual - target).item())
+        if not TIP_CORRECTION_ENABLED:
+            print(
+                f"[{label} CORRECTION OFF] steps=0 corrections=0 "
+                f"norm={final_error_m * 1000.0:.2f}mm "
+                f"error=({error_mm[0].item():+.1f}, "
+                f"{error_mm[1].item():+.1f}, {error_mm[2].item():+.1f})mm"
+            )
+            return command_q
 
         if converged:
             print(
@@ -2784,7 +2813,7 @@ class VisualSculptingSimulator:
                 position
             )
 
-            self.robot.control_dofs_position(
+            self.control_arm_position(
                 position=q,
                 dofs_idx_local=self.dof_idx,
             )
@@ -2846,7 +2875,7 @@ class VisualSculptingSimulator:
             10
         ):
 
-            self.robot.control_dofs_position(
+            self.control_arm_position(
 
                 position=self.initial_q,
 
@@ -3622,7 +3651,7 @@ class VisualSculptingSimulator:
                 50
             ):
 
-                self.robot.control_dofs_position(
+                self.control_arm_position(
 
                     position=q,
 
@@ -3683,7 +3712,7 @@ class VisualSculptingSimulator:
                 HOLD_STEPS
             ):
 
-                self.robot.control_dofs_position(
+                self.control_arm_position(
 
                     position=q_end,
 
@@ -3777,7 +3806,7 @@ class VisualSculptingSimulator:
                 SETTLE_STEPS
             ):
 
-                self.robot.control_dofs_position(
+                self.control_arm_position(
 
                     position=q_up,
 
@@ -3817,7 +3846,7 @@ class VisualSculptingSimulator:
             )
         ):
 
-            self.robot.control_dofs_position(
+            self.control_arm_position(
 
                 position=q,
 
