@@ -479,83 +479,90 @@ def make_x_target(
 # HEART MASK
 # ============================================================
 
-def make_heart_mask(
-    device,
-):
+def make_heart_mask(device):
+    # 현재 A의 크기와 중심 위치를 기준으로 사용
+    reference = make_letter_mask("A")
+    rows, cols = np.where(reference >= 0.5)
 
-    ys = torch.linspace(
-        -1.4,
-        1.4,
-        MAP_H,
-        device=device,
-        dtype=torch.float32,
-    )
+    if rows.size == 0:
+        raise ValueError("A 타겟의 크기를 확인할 수 없습니다.")
 
-    xs = torch.linspace(
-        -1.4,
-        1.4,
-        MAP_W,
-        device=device,
-        dtype=torch.float32,
-    )
+    left = int(cols.min())
+    right = int(cols.max()) + 1
+    top = int(rows.min())
+    bottom = int(rows.max()) + 1
 
-    yy, xx = torch.meshgrid(
-        ys,
-        xs,
+    # 기존 하트 형태 생성
+    yy, xx = np.meshgrid(
+        np.linspace(-1.4, 1.4, MAP_H),
+        np.linspace(-1.4, 1.4, MAP_W),
         indexing="ij",
     )
 
+    # 이미지 Y축은 아래로 증가하므로 수학적 Y축 반전
+    yy = -yy
+
+    # 이미지 Y축은 아래로 증가하므로 수학적 Y축 반전
+    yy = -yy
+
     equation = (
-        (
-            xx
-            *
-            xx
-            +
-            yy
-            *
-            yy
-            -
-            1.0
-        ) ** 3
-        -
-        xx
-        *
-        xx
-        *
-        yy
-        *
-        yy
-        *
-        yy
+        (xx * xx + yy * yy - 1.0) ** 3
+        - xx * xx * yy ** 3
     )
 
-    mask = (
-        equation
-        <=
-        0.0
-    ).float()
+    heart = Image.fromarray(
+        (equation <= 0.0).astype(np.uint8) * 255
+    )
+    heart = heart.crop(heart.getbbox())
 
-    # 하트 경계를 부드럽게 만든다.
-    mask = mask[
-        None,
-        None
-    ]
+    # 하트 비율을 유지하면서 A 영역에 맞추기
+    scale = min(
+        (right - left) / heart.width,
+        (bottom - top) / heart.height,
+    )
+    width = max(1, round(heart.width * scale))
+    height = max(1, round(heart.height * scale))
 
-    for _ in range(
-        4
-    ):
+    heart = heart.resize(
+        (width, height),
+        resample=Image.Resampling.LANCZOS,
+    )
 
-        mask = torch.nn.functional.avg_pool2d(
-            mask,
-            kernel_size=5,
-            stride=1,
-            padding=2,
+    image = Image.new("L", (MAP_W, MAP_H), 0)
+    image.paste(
+        heart,
+        (
+            round((left + right - width) / 2),
+            round((top + bottom - height) / 2),
+        ),
+    )
+
+    # 내부 높이는 일정하게, 경계만 부드럽게 처리
+    image = image.filter(
+        ImageFilter.GaussianBlur(
+            radius=max(2.0, MAP_W * 0.010)
         )
+    )
 
-    return mask[
-        0,
-        0
-    ]
+    # 경계 처리 후 중심 위치 정렬
+    rows, cols = np.where(np.asarray(image) >= 128)
+    shift_x = round(
+        (left + right - cols.min() - cols.max() - 1) / 2
+    )
+    shift_y = round(
+        (top + bottom - rows.min() - rows.max() - 1) / 2
+    )
+
+    aligned = Image.new("L", (MAP_W, MAP_H), 0)
+    aligned.paste(image, (shift_x, shift_y))
+
+    mask = np.asarray(aligned, dtype=np.float32) / 255.0
+
+    return torch.as_tensor(
+        mask,
+        device=device,
+        dtype=torch.float32,
+    )
 
 
 # ============================================================

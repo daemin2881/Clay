@@ -639,6 +639,7 @@ def adjust_target_to_state_gpu(
     current,
     raw_target,
     iterations=150,
+    return_transform=False,
 ):
 
     if not torch.is_tensor(
@@ -902,5 +903,14 @@ def adjust_target_to_state_gpu(
     print(
         "==============================================="
     )
+
+    if return_transform:
+        transform = dict(
+            alpha=float(alpha.item()), beta_m=float(beta.item()),
+            clip_min_m=float(CLAY_BOTTOM_Z), clip_max_m=float(CLAY_TOP_Z + 0.015),
+            edge_mask=M.detach().bool().cpu().clone(),
+            edge_reference=current.detach().cpu().clone(),
+        )
+        return adjusted, transform
 
     return adjusted
